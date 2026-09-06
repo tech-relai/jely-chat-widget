@@ -1,0 +1,34 @@
+{
+    "compilerOptions": {
+        /* Output is produced by Vite/esbuild and the .d.ts files by vite-plugin-dts;
+           `tsc` here is the typechecker only (`npm run typecheck`). */
+        "noEmit": true,
+
+        /* ES2020 keeps the emitted bundle readable and is the floor for every browser
+           that supports Shadow DOM, which the widget requires anyway (F5). */
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2020", "DOM", "DOM.Iterable"],
+        "jsx": "react-jsx",
+
+        "strict": true,
+        "noImplicitAny": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "useUnknownInCatchVariables": true,
+        "exactOptionalPropertyTypes": false,
+
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+
+        "types": ["node"]
+    },
+    "include": ["src/**/*", "vite.config.ts"],
+    "exclude": ["node_modules", "dist"]
+}

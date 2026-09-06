@@ -1,0 +1,11 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "types": ["node", "vite/client"],
+        "paths": {
+            "@jely/chat-widget": ["../dist/index.d.ts"]
+        }
+    },
+    "include": ["main.tsx", "vite.config.ts"],
+    "exclude": ["dist"]
+}

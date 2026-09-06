@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!--
+            THE SAME PAGE UNDER A STRICT Content-Security-Policy — no `style-src
+            'unsafe-inline'`, which is the claim the package README makes. If the widget
+            renders here exactly as it does on index.html, the constructable stylesheet is
+            doing its job. On Safari <= 16.3 / Firefox <= 100 it will (correctly) render
+            nothing and log one line to the console instead.
+
+            `connect-src` names the mock API, `style-src 'self'` allows only the built
+            stylesheet file, and no `img-src` entry is needed because this page's persona
+            has no avatar.
+        -->
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; connect-src 'self' http://localhost:8787; style-src 'self'; script-src 'self'"
+        />
+        <title>Jely chat widget — smoke page (strict CSP)</title>
+        <link rel="stylesheet" href="./page.css" />
+    </head>
+    <body>
+        <div id="app" data-csp="on"></div>
+        <script type="module" src="./main.tsx"></script>
+    </body>
+</html>

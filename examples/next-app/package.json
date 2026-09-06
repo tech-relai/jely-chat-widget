@@ -1,0 +1,24 @@
+{
+    "name": "jely-chat-widget-example-next-app",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Minimal Next.js App Router app that mounts @jely/chat-widget. Not part of the published package.",
+    "scripts": {
+        "dev": "next dev -p 3000",
+        "build": "next build",
+        "start": "next start -p 3000",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@jely/chat-widget": "file:../..",
+        "next": "^16.3.4",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.14.10",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "typescript": "^5.6.3"
+    }
+}
