@@ -72,6 +72,14 @@ export function supportsAdoptedStyleSheets(): boolean {
  * Returns the mechanism actually used, so a caller can log it or (S8.2's call) decline to
  * render rather than show an unstyled panel when the fallback is also blocked. Never
  * throws: a browser that refuses both leaves the widget unstyled, not broken.
+ *
+ * CALL THIS ONLY ONCE `root`'s HOST IS IN THE DOCUMENT. The `<style>` branch reads
+ * `element.sheet`, and HTML's "update a style block" returns early — leaving `sheet` null —
+ * for an element whose node document has no browsing context. A `<style>` in a shadow root
+ * on a disconnected host is therefore indistinguishable from one a CSP blocked, and this
+ * function would report `"failed"` for every browser that takes the fallback at all. The
+ * adopted branch is immune, which is exactly why the bug was invisible on Chrome, Edge and
+ * Safari 16.4+. `JelyChatWidget` appends the host first for this reason.
  */
 export function applyWidgetStyles(root: ShadowRoot, css: string): "adopted" | "style-element" | "failed" {
     if (supportsAdoptedStyleSheets()) {

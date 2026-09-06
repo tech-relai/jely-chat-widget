@@ -1,4 +1,4 @@
-/**
+/*
  * The persona the visitor sees, and how the three sources of it are combined.
  *
  * PRECEDENCE (§4.9: "props may override"):
@@ -12,9 +12,11 @@
  * before — or without — a config response, and because a field the server one day makes
  * optional would otherwise render as `undefined` on a customer's page.
  *
- * F6 IS THE RULE THIS FILE EXISTS TO KEEP: the design samples in `widget-samples/` are one
- * client's brand ("ollo", "Billal", their green). Nothing from them appears in this
- * package — the LOOK is matched, the words and colours are Jely's neutral defaults.
+ * F6 IS THE RULE THIS FILE EXISTS TO KEEP: the design samples this widget's look was drawn
+ * from belong to a customer. Nothing of theirs appears in this package — no name, no copy,
+ * no colour. The LOOK is matched; every word and colour below is Jely's own neutral
+ * default. (The sample brand is deliberately not named here: this file ships to every
+ * consumer of a public package.)
  *
  * The prop is a `Partial`, so only the keys actually present override. Passing
  * `{ ctaLabel: undefined }` therefore does NOT clear a CTA configured in the console; it

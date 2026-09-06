@@ -200,13 +200,22 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 const response = await client.postMessage({ body }, { sessionToken: token });
                 dispatch({ type: "messageSent", message: response.message });
             } catch (error) {
+                // A DEAD SESSION IS NOT A FAILED SEND. Before this, a 401 here showed the
+                // generic "that didn't send" and the session was only discarded when the
+                // next poll (≤ 3 s later) 401'd as well — so the visitor read the wrong
+                // explanation first and watched the panel change its mind. Discarding here
+                // resets straight to a fresh greeting, which is what actually happened.
+                if (error instanceof JelyApiError && error.isSessionGone) {
+                    discardSession();
+                    return;
+                }
                 dispatch({ type: "sendFailed", error: describeError(error) });
                 // A refused write means the server moved the conversation under us; poll at
                 // once so the panel flips to the state that explains it.
                 if (error instanceof JelyApiError && error.isConversationWriteRefused) pollNow();
             }
         },
-        [client, pollNow],
+        [client, discardSession, pollNow],
     );
 
     const openHandoff = useCallback(async () => {
@@ -222,10 +231,16 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
             const handoff = await client.requestHandoff({ sessionToken: token });
             dispatch({ type: "handoffOpened", handoff });
         } catch (error) {
+            // Same rule as `sendMessage`: a gone session resets rather than reporting a
+            // failure that did not happen.
+            if (error instanceof JelyApiError && error.isSessionGone) {
+                discardSession();
+                return;
+            }
             dispatch({ type: "sendFailed", error: describeError(error) });
             if (error instanceof JelyApiError && error.isConversationWriteRefused) pollNow();
         }
-    }, [client, pollNow]);
+    }, [client, discardSession, pollNow]);
 
     const startNewChat = useCallback(() => {
         clearWidgetStorage(widgetKey);

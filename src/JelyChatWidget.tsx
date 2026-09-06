@@ -110,17 +110,33 @@ export function JelyChatWidget(props: JelyChatWidgetProps) {
             return;
         }
 
-        // `applyWidgetStyles` returns "failed" when the constructable stylesheet is
-        // unavailable AND the fallback <style> was blocked by the host's `style-src` — the
-        // widget would paint as a column of unstyled text over their page. S8.1 left the
-        // choice here and this is it: DO NOT RENDER, and say why once in the console so
-        // the site's developer has something to act on. Nothing is broken, only absent.
+        // THE HOST IS CONNECTED BEFORE THE STYLES ARE APPLIED, and the order is the whole
+        // fix. `applyWidgetStyles` judges its `<style>` fallback by `element.sheet`, and
+        // HTML's "update a style block" returns early for an element whose node document
+        // has no browsing context — a `<style>` inside a shadow root on a host that is not
+        // in the document therefore ALWAYS has `sheet === null`, whether or not any CSP is
+        // in play. Applying first made the fallback report "failed" on every browser that
+        // takes it (Safari ≤ 16.3 including iOS ≤ 16.3, Firefox ≤ 100), so the widget never
+        // rendered there and blamed the site's Content-Security-Policy for it. Chrome, Edge
+        // and Safari 16.4+ never noticed, because they take the adopted-stylesheet path,
+        // which needs no document at all.
+        //
+        // Appending first costs nothing visually: the host is empty until `setShadowRoot`
+        // lets the portal render into it, so nothing can paint unstyled in the meantime.
+        document.body.appendChild(host);
+
+        // "failed" now means what it says: the constructable stylesheet is unavailable AND
+        // the fallback <style> was genuinely blocked by the host's `style-src` — the widget
+        // would paint as a column of unstyled text over their page. S8.1 left the choice
+        // here and this is it: DO NOT RENDER, take the host back out of their DOM, and say
+        // why once in the console so the site's developer has something to act on. Nothing
+        // is broken, only absent.
         if (applyWidgetStyles(root, WIDGET_CSS) === "failed") {
+            host.remove();
             warnAboutBlockedStyles();
             return;
         }
 
-        document.body.appendChild(host);
         hostRef.current = host;
         setShadowRoot(root);
 

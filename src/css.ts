@@ -1,4 +1,4 @@
-/**
+/*
  * The widget's entire stylesheet, hand-written (F5: no Tailwind, no CSS-in-JS runtime),
  * injected once into the shadow root through `applyWidgetStyles`.
  *

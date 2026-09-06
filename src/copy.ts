@@ -1,4 +1,4 @@
-/**
+/*
  * Every English string the widget can render, in one place (§4.9).
  *
  * WHY ONE FILE: a later i18n pass should be mechanical — swap this object for one keyed
