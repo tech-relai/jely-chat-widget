@@ -89,7 +89,11 @@ export function ChatView(props: ChatViewProps) {
     };
 
     return (
-        <section className="j-panel" role="complementary" aria-label={copy.regionLabel(props.organizationName)}>
+        <section
+            className="j-panel j-panel--chat"
+            role="complementary"
+            aria-label={copy.regionLabel(props.organizationName)}
+        >
             <div className="j-header">
                 <Avatar appearance={appearance} size="md" />
                 <div className="j-header__text">
@@ -200,7 +204,7 @@ function Message({
                     ) : (
                         <span className="j-avatar--sm j-msg__spacer" />
                     ))}
-                <div>
+                <div className="j-msg__stack">
                     <div className={`j-bubble ${isVisitor ? "j-bubble--visitor" : "j-bubble--agent"}`}>
                         {message.body}
                     </div>

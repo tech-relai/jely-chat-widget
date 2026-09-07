@@ -227,6 +227,16 @@ a {
     animation: j-panel-in 160ms ease-out;
 }
 
+/* The CHAT panel gets a definite height. .j-panel alone sets only max-height, so the
+ * window was sized by its content: a new conversation with one short message produced a
+ * box barely taller than the composer, which then grew and shrank under the reader as
+ * messages arrived. A messaging surface wants its composer anchored in one place from the
+ * first message onward. Scoped to --chat deliberately: the greeting card is a short card
+ * and must stay content-sized. */
+.j-panel--chat {
+    height: min(560px, calc(100vh - 40px));
+}
+
 @keyframes j-panel-in {
     from {
         opacity: 0;
@@ -515,7 +525,10 @@ a {
 
 .j-transcript {
     flex: 1 1 auto;
-    min-height: 120px;
+    /* 0, not a pixel floor: a flex child defaults to min-height: auto, which refuses to
+     * shrink below its content and so never becomes a scroll container -- the transcript
+     * would push the composer out of the panel instead of scrolling. */
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 14px 15px 6px;
@@ -561,8 +574,27 @@ a {
     flex: 0 0 auto;
 }
 
-.j-bubble {
+/* The bubble and its timestamp, stacked. THIS carries the width cap, not the bubble.
+ *
+ * The cap used to sit on .j-bubble, whose containing block is this wrapper -- which is
+ * itself shrink-to-fit, so the bubble's width depended on the wrapper's and the wrapper's
+ * on the bubble's. With overflow-wrap: anywhere below, whose min-content width is a single
+ * character, that circularity resolved by collapsing the column to one character wide:
+ * "hi" rendered as "h" over "i". Here the percentage resolves against .j-msg, a flex row
+ * of known width, so there is nothing circular about it.
+ *
+ * min-width: 0 because a flex item defaults to min-width: auto and would otherwise refuse
+ * to shrink below its content, pushing a long unbroken word out of the panel. */
+.j-msg__stack {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     max-width: 84%;
+}
+
+.j-bubble {
+    max-width: 100%;
+    min-width: 0;
     padding: 9px 12px;
     border-radius: 13px;
     font-size: 13px;
