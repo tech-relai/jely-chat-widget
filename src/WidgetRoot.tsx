@@ -84,7 +84,27 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 if (active) setConfig(response);
             })
             .catch(() => {
-                if (active && !controller.signal.aborted) setUnavailable(true);
+                if (!active || controller.signal.aborted) return;
+                setUnavailable(true);
+                /**
+                 * The one thing the widget cannot degrade around: without `GET /config` it
+                 * has no persona, no org name and no idea whether the handoff is on, so it
+                 * renders nothing. Silence there is the worst outcome -- the site owner sees
+                 * no widget and no reason -- so say once, plainly, what the two causes are.
+                 *
+                 * Both look identical from JavaScript on purpose: an origin that is not on
+                 * the allowlist is refused WITHOUT CORS headers, so the browser blocks the
+                 * response exactly as it blocks a CSP violation. Naming both is the most
+                 * precise thing that can honestly be said from here.
+                 */
+                // eslint-disable-next-line no-console
+                console.warn(
+                    "[jely] The chat widget could not reach " +
+                        client.apiBaseUrl +
+                        ". Two things cause this: this page's origin is not on the widget's " +
+                        "allowed-origins list in the Jely console, or this site's " +
+                        "Content-Security-Policy does not allow connect-src to that origin.",
+                );
             });
         return () => {
             active = false;

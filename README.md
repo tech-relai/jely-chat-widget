@@ -190,15 +190,18 @@ connect-src https://jely-v2-api-9qirj.ondigitalocean.app
 That is the API origin the widget polls and posts to. If you pass `apiBaseUrl`, use that
 origin instead.
 
-**Required if your persona has an uploaded avatar**
+**Optional: `img-src` for an uploaded persona avatar**
 
 ```
 img-src <the origin serving the avatar>
 ```
 
-The avatar is the only image the widget loads from the network. The handoff QR code is
-drawn as inline SVG elements — no `data:` URI, no canvas — so `img-src data:` is **not**
-needed.
+Only if you want the picture. **Without it the widget does not break** — a blocked avatar
+falls back to the persona's initial, which is what a persona with no uploaded picture shows
+anyway. The widget cannot lift your `img-src`, so it degrades instead of asking you to.
+
+The handoff QR code is drawn as inline SVG paths, not a `data:` URI and not through a
+canvas, so `img-src data:` is never needed.
 
 **Not required: `style-src 'unsafe-inline'`**
 

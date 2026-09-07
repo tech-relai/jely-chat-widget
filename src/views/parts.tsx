@@ -16,12 +16,31 @@ import { ArrowUpIcon, CloseIcon, WhatsAppGlyph } from "./icons";
 
 export function Avatar({ appearance, size }: { appearance: WidgetAppearance; size: "lg" | "md" | "sm" }) {
     const url = appearance.avatarUrl?.trim() ?? "";
+
+    /**
+     * A host site's Content-Security-Policy can block this image, and no third-party script
+     * can do anything about that: `img-src` is the site's call, not ours. Rather than make
+     * every customer edit their security headers to avoid a hole in the UI, a failed load
+     * falls back to the initial -- exactly what a persona with no uploaded picture already
+     * shows. The widget looks deliberate instead of broken, and needs no configuration.
+     *
+     * This is also why `onError` and not a fetch: the browser fires it for a CSP block, a
+     * 404 and a dead CDN alike, so one path covers every way an image can fail to arrive.
+     */
+    const [imageFailed, setImageFailed] = useState(false);
+
+    // A newly uploaded avatar deserves a fresh attempt; without this, one failure would
+    // stick for the life of the mount even after the org fixed the picture.
+    useEffect(() => {
+        setImageFailed(false);
+    }, [url]);
+
     return (
         <span className={`j-avatar j-avatar--${size}`}>
-            {url === "" ? (
+            {url === "" || imageFailed ? (
                 avatarInitial(appearance.displayName)
             ) : (
-                <img src={url} alt={copy.avatarAlt(appearance.displayName)} />
+                <img src={url} alt={copy.avatarAlt(appearance.displayName)} onError={() => setImageFailed(true)} />
             )}
         </span>
     );
