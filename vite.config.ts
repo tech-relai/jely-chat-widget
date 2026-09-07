@@ -33,7 +33,9 @@ import dts from "vite-plugin-dts";
  * paths and its prose, which is not something to hand to every consumer of a public
  * package for the sake of a convenience devtools only uses when someone has it open. The
  * bundles are unminified, so the mapped line is legible on its own. It also halves the
- * download: 269.0 kB packed became 133.0 kB.
+ * download: 269.0 kB packed became 130.8 kB (measured with `npm pack --dry-run`; the
+ * remainder of the drop came from keeping this repo's internal paths out of the emitted
+ * `.d.ts` files, which is why the figure is lower than the sourcemap strip alone gave).
  */
 export default defineConfig({
     plugins: [
