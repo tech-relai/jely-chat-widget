@@ -17,7 +17,7 @@
  *     scroll position, which no other part of the widget knows or should know.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { copy } from "../copy";
 import { formatClockTime, formatDayMark, startsNewDay } from "../time";
@@ -43,12 +43,6 @@ export interface ChatViewProps {
     /** The transcript reached its bottom — the visitor has seen everything. */
     onSeen: () => void;
     onStartNewChat: () => void;
-    /**
-     * The handoff modal, when it is up. It renders INSIDE the panel because it is
-     * positioned against the panel's own box — the widget owns exactly one fixed element
-     * on the customer's page and does not get to cover the rest of it.
-     */
-    overlay?: ReactNode;
 }
 
 /** How close to the bottom still counts as "at the bottom", in pixels. */
@@ -165,8 +159,6 @@ export function ChatView(props: ChatViewProps) {
             {lock === null && props.whatsappAvailable && (
                 <WhatsAppRow hint={copy.continueHintSameConversation} onOpen={props.onOpenHandoff} />
             )}
-
-            {props.overlay}
         </section>
     );
 }
@@ -175,6 +167,12 @@ export function ChatView(props: ChatViewProps) {
  * One bubble, plus the day mark above it when the calendar day changed and the clock time
  * below it when this is the last message of a same-direction run. Timing every message
  * would double the transcript's line count for information the visitor rarely wants.
+ *
+ * THE TIME IS A SIBLING OF THE AVATAR ROW, NOT A CHILD OF IT. It used to sit in a column
+ * beside the avatar, which meant the row's `align-items` resolved against bubble + time
+ * together: the avatar aligned to the bottom of the TIMESTAMP and hung visibly below the
+ * bubble it belonged to. Keeping the time outside `.j-msg__row` is what lets the avatar
+ * align to the bubble itself.
  */
 function Message({
     appearance,
@@ -189,27 +187,30 @@ function Message({
 }) {
     const isVisitor = message.direction === "visitor";
     const showDayMark = startsNewDay(message.createdAt, previous?.createdAt);
+    const startsRun = previous === undefined || previous.direction !== message.direction;
     const endsRun = next === undefined || next.direction !== message.direction;
-    // The avatar sits beside the LAST agent bubble of a run, so a three-message answer
-    // reads as one turn rather than three separate people.
-    const showAvatar = !isVisitor && endsRun;
+    // The avatar OPENS a run: it sits beside the first agent bubble and aligns with its top
+    // edge, the way `widget-samples/` draws it, so a three-message answer reads as one turn
+    // rather than three separate people. The rest of the run keeps an avatar-sized spacer,
+    // so every bubble in it shares one left edge.
+    const showAvatar = !isVisitor && startsRun;
 
     return (
         <>
             {showDayMark && <p className="j-daymark">{formatDayMark(message.createdAt)}</p>}
             <div className={`j-msg ${isVisitor ? "j-msg--visitor" : "j-msg--agent"}`}>
-                {!isVisitor &&
-                    (showAvatar ? (
-                        <Avatar appearance={appearance} size="sm" />
-                    ) : (
-                        <span className="j-avatar--sm j-msg__spacer" />
-                    ))}
-                <div className="j-msg__stack">
+                <div className="j-msg__row">
+                    {!isVisitor &&
+                        (showAvatar ? (
+                            <Avatar appearance={appearance} size="sm" />
+                        ) : (
+                            <span className="j-avatar--sm j-msg__spacer" />
+                        ))}
                     <div className={`j-bubble ${isVisitor ? "j-bubble--visitor" : "j-bubble--agent"}`}>
                         {message.body}
                     </div>
-                    {endsRun && <p className="j-msg__time">{formatClockTime(message.createdAt)}</p>}
                 </div>
+                {endsRun && <p className="j-msg__time">{formatClockTime(message.createdAt)}</p>}
             </div>
         </>
     );

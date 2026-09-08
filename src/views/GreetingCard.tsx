@@ -4,7 +4,14 @@
  *
  * STRUCTURE (§4.9, matching the second design sample): avatar, the greeting headline, the
  * "I'm {displayName} from {organization}" identity line, the tagline, the reply-time line,
- * an optional CTA, the first-message input, the guest note, and "Continue on WhatsApp".
+ * an optional CTA, the first-message input and the guest note.
+ *
+ * NO "CONTINUE ON WHATSAPP" ROW (user, 2026-09-08), which §4.9 does list here. It was a
+ * dead control: `POST /conversation/handoff` is session-authenticated and there is no
+ * session until the visitor sends something, so the row's only possible outcome on this
+ * card was the error "Send your first message here, then you can move it to WhatsApp".
+ * Offering a route and then refusing it is worse than not offering it — the row appears in
+ * the chat footer the moment there is a conversation to move.
  *
  * WHERE THE HEADLINE COMES FROM — a resolved conflict inside the plan, flagged here
  * because it is the one place a reader would otherwise think something was missed.
@@ -21,17 +28,14 @@ import { resolveCta } from "../appearance";
 import { copy } from "../copy";
 import type { WidgetAppearance } from "../types";
 import { CloseIcon, ExternalLinkIcon, GuestIcon } from "./icons";
-import { Avatar, Composer, ErrorNote, WhatsAppRow } from "./parts";
+import { Avatar, Composer, ErrorNote } from "./parts";
 
 export interface GreetingCardProps {
     appearance: WidgetAppearance;
     organizationName: string;
-    /** `whatsapp.available` from `GET /config` — the row is hidden when the org has it off. */
-    whatsappAvailable: boolean;
     sending: boolean;
     error: string | null;
     onSendFirstMessage: (body: string) => void;
-    onOpenHandoff: () => void;
     onDismissError: () => void;
     onMinimize: () => void;
 }
@@ -89,8 +93,6 @@ export function GreetingCard(props: GreetingCardProps) {
                     <span>{copy.guestNote}</span>
                 </p>
             </div>
-
-            {props.whatsappAvailable && <WhatsAppRow hint={copy.continueHintOptional} onOpen={props.onOpenHandoff} />}
         </section>
     );
 }

@@ -82,15 +82,6 @@ export function CheckCircleIcon({ size = 14 }: IconProps) {
     );
 }
 
-export function DevicesIcon({ size = 14 }: IconProps) {
-    return (
-        <svg {...stroke(size)}>
-            <rect x="14" y="9" width="7" height="12" rx="1.5" />
-            <path d="M18 5.5H4.5A1.5 1.5 0 0 0 3 7v8a1.5 1.5 0 0 0 1.5 1.5H11" />
-        </svg>
-    );
-}
-
 export function LinkIcon({ size = 14 }: IconProps) {
     return (
         <svg {...stroke(size)}>

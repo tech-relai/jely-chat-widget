@@ -240,12 +240,12 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
 
     const openHandoff = useCallback(async () => {
         const token = sessionTokenRef.current;
-        if (token === null) {
-            // The greeting card offers the handoff (§4.9 lists it there), but there is no
-            // conversation to move yet — `POST /conversation/handoff` is session-authenticated.
-            dispatch({ type: "sendFailed", error: copy.handoffNeedsMessage });
-            return;
-        }
+        // Unreachable from the UI: the only control that calls this is the chat footer's
+        // row, and the chat phase implies a session. It survives as the guard for one
+        // race — a poll discarding the session between the render and the click — where
+        // the panel is about to reset to the greeting anyway, so silence is the whole
+        // correct response.
+        if (token === null) return;
         dispatch({ type: "sendStarted" });
         try {
             const handoff = await client.requestHandoff({ sessionToken: token });
@@ -283,7 +283,23 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
             style={accentCssVariables(appearance.accentColor)}
             onKeyDown={(event) => {
                 const inside = isInsideWidget(event.currentTarget, event.target);
-                if (!shouldCloseOnEscape({ key: event.key, panelOpen: state.open, targetInsideWidget: inside })) {
+                const handoffOpen = state.phase === "handoff";
+
+                // The modal is on top, so it takes Escape first: the visitor means "close
+                // this", not "close the whole chat behind it".
+                if (shouldDismissHandoffOnEscape({ key: event.key, handoffOpen, targetInsideWidget: inside })) {
+                    event.stopPropagation();
+                    dispatch({ type: "handoffDismissed" });
+                    return;
+                }
+                if (
+                    !shouldCloseOnEscape({
+                        key: event.key,
+                        panelOpen: state.open,
+                        handoffOpen,
+                        targetInsideWidget: inside,
+                    })
+                ) {
                     return;
                 }
                 // Only now: the keystroke came from inside the widget and it closed the
@@ -298,11 +314,9 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 <GreetingCard
                     appearance={appearance}
                     organizationName={organizationName}
-                    whatsappAvailable={whatsappAvailable}
                     sending={state.sending}
                     error={state.error}
                     onSendFirstMessage={sendFirstMessage}
-                    onOpenHandoff={openHandoff}
                     onDismissError={() => dispatch({ type: "errorCleared" })}
                     onMinimize={minimizePanel}
                 />
@@ -323,16 +337,14 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                     onMinimize={minimizePanel}
                     onSeen={() => dispatch({ type: "messagesSeen" })}
                     onStartNewChat={startNewChat}
-                    overlay={
-                        state.phase === "handoff" && state.handoff !== null ? (
-                            <HandoffModal
-                                handoff={state.handoff}
-                                messages={state.messages}
-                                onDismiss={() => dispatch({ type: "handoffDismissed" })}
-                            />
-                        ) : null
-                    }
                 />
+            )}
+
+            {/* A SIBLING OF THE PANEL, not a child of it: the handoff is a centred,
+                page-level modal (see `HandoffModal`), so it is not the panel's overlay any
+                more and must not inherit the panel's box or its `overflow: hidden`. */}
+            {state.open && state.phase === "handoff" && state.handoff !== null && (
+                <HandoffModal handoff={state.handoff} onDismiss={() => dispatch({ type: "handoffDismissed" })} />
             )}
         </div>
     );
@@ -351,11 +363,31 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
  * practice the event has already proved it came from inside by reaching it; the explicit
  * check states the rule rather than leaving it implied by where a listener happens to sit.
  *
+ * The handoff modal is the one exception, and it is a layering rule rather than a new
+ * policy: while it is up, Escape belongs to it and the panel does not see the key.
+ *
  * Exported for the desk checks. NOT part of the package's public surface — see `index.ts`.
  */
-export function shouldCloseOnEscape(input: { key: string; panelOpen: boolean; targetInsideWidget: boolean }): boolean {
+export function shouldCloseOnEscape(input: {
+    key: string;
+    panelOpen: boolean;
+    handoffOpen: boolean;
+    targetInsideWidget: boolean;
+}): boolean {
     if (input.key !== "Escape") return false;
     if (!input.panelOpen) return false;
+    if (input.handoffOpen) return false;
+    return input.targetInsideWidget;
+}
+
+/** The other half of that rule: Escape dismisses the modal while the modal is up. */
+export function shouldDismissHandoffOnEscape(input: {
+    key: string;
+    handoffOpen: boolean;
+    targetInsideWidget: boolean;
+}): boolean {
+    if (input.key !== "Escape") return false;
+    if (!input.handoffOpen) return false;
     return input.targetInsideWidget;
 }
 

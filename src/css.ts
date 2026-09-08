@@ -76,6 +76,15 @@ textarea {
     margin: 0;
 }
 
+/* Every gap in this stylesheet is a \`gap\` or an explicit margin. The user-agent margin on
+ * a paragraph or a heading is neither, and \`all: initial\` on :host does not reach
+ * descendants -- so the bullets, the recap footer and the timestamps were each carrying an
+ * invisible 1em that no rule here asked for. */
+h2,
+p {
+    margin: 0;
+}
+
 button {
     background: none;
     border: 0;
@@ -119,6 +128,7 @@ a {
     --jely-muted: #9ca0aa;
     --jely-faint: #6c7079;
     --jely-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+    --jely-scrim: rgba(0, 0, 0, 0.66);
     --jely-qr-tile: #ffffff;
     --jely-qr-ink: #0b0c0f;
 }
@@ -135,6 +145,7 @@ a {
     --jely-muted: #71717a;
     --jely-faint: #a1a1aa;
     --jely-shadow: 0 20px 44px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.08);
+    --jely-scrim: rgba(15, 23, 42, 0.44);
     --jely-qr-tile: #ffffff;
     --jely-qr-ink: #0b0c0f;
 }
@@ -241,6 +252,12 @@ a {
     from {
         opacity: 0;
         transform: translateY(8px);
+    }
+}
+
+@keyframes j-fade-in {
+    from {
+        opacity: 0;
     }
 }
 
@@ -498,15 +515,24 @@ a {
     background: var(--jely-surface-header);
 }
 
+/* The label never wraps: it is the row's subject, and at the panel's 372px it was breaking
+ * across two lines while the hint beside it still ellipsised. The hint yields instead --
+ * it is the expendable half of the row. */
 .j-wafooter__label {
+    flex: 0 0 auto;
     font-size: 13px;
     font-weight: 600;
     letter-spacing: -0.005em;
+    white-space: nowrap;
 }
 
 .j-wafooter__hint {
+    flex: 0 1 auto;
+    min-width: 0;
     margin-left: auto;
+    padding-left: 8px;
     font-size: 11px;
+    text-align: right;
     color: var(--jely-faint);
     white-space: nowrap;
     overflow: hidden;
@@ -554,18 +580,32 @@ a {
     color: var(--jely-faint);
 }
 
+/* One message: the avatar row, and the timestamp under it when the run ends. A column,
+ * so the timestamp cannot participate in the row's vertical alignment. */
 .j-msg {
     display: flex;
-    gap: 8px;
-    align-items: flex-end;
+    flex-direction: column;
     max-width: 100%;
 }
 
-.j-msg--agent {
+/* The avatar (or its spacer) beside the bubble.
+ *
+ * align-items: flex-start puts the avatar level with the TOP of the bubble, which is where
+ * widget-samples/ draws it and where it belongs now that it opens the run. It used to be
+ * flex-end against a column of bubble + timestamp, which pushed the avatar a whole line
+ * below the bubble it names. */
+.j-msg__row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    max-width: 100%;
+}
+
+.j-msg--agent .j-msg__row {
     justify-content: flex-start;
 }
 
-.j-msg--visitor {
+.j-msg--visitor .j-msg__row {
     justify-content: flex-end;
 }
 
@@ -574,26 +614,18 @@ a {
     flex: 0 0 auto;
 }
 
-/* The bubble and its timestamp, stacked. THIS carries the width cap, not the bubble.
+/* The width cap sits HERE, on the flex item, and its percentage resolves against
+ * .j-msg__row -- a full-width flex row.
  *
- * The cap used to sit on .j-bubble, whose containing block is this wrapper -- which is
- * itself shrink-to-fit, so the bubble's width depended on the wrapper's and the wrapper's
- * on the bubble's. With overflow-wrap: anywhere below, whose min-content width is a single
- * character, that circularity resolved by collapsing the column to one character wide:
- * "hi" rendered as "h" over "i". Here the percentage resolves against .j-msg, a flex row
- * of known width, so there is nothing circular about it.
+ * It must never resolve against a shrink-to-fit ancestor: when it did, the bubble's width
+ * depended on the wrapper's and the wrapper's on the bubble's, and with overflow-wrap:
+ * anywhere below (min-content width = one character) that circularity resolved by
+ * collapsing the column to a single character: "hi" rendered as "h" over "i".
  *
  * min-width: 0 because a flex item defaults to min-width: auto and would otherwise refuse
  * to shrink below its content, pushing a long unbroken word out of the panel. */
-.j-msg__stack {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    max-width: 84%;
-}
-
 .j-bubble {
-    max-width: 100%;
+    max-width: 84%;
     min-width: 0;
     padding: 9px 12px;
     border-radius: 13px;
@@ -619,6 +651,12 @@ a {
     margin-top: 3px;
     font-size: 10.5px;
     color: var(--jely-faint);
+}
+
+/* Indented past the avatar column (24px + the row's 8px gap) so it starts where the
+ * bubbles above it do, rather than under the avatar. */
+.j-msg--agent .j-msg__time {
+    margin-left: 32px;
 }
 
 .j-msg--visitor .j-msg__time {
@@ -707,111 +745,190 @@ a {
 }
 
 /* ---------------------------------------------------------------------------
-   Handoff (overlays the panel; the fourth sample is this view)
+   Handoff modal (the fourth sample is this view)
+
+   position: fixed inside the shadow root, NOT absolute inside the panel. :host is fixed
+   but carries no transform, filter or containment, so a fixed descendant of it resolves
+   against the VIEWPORT -- which is how one shadow host still yields a page-centred modal
+   without a second element on the customer's page. It is also why the modal must not be
+   nested in .j-panel: that box is overflow: hidden and animates a transform on open.
    --------------------------------------------------------------------------- */
 
-.j-handoff {
-    position: absolute;
+.j-modal {
+    position: fixed;
     inset: 0;
-    z-index: 2;
+    z-index: 1;
     display: flex;
-    flex-direction: column;
-    background: var(--jely-surface);
-    animation: j-panel-in 140ms ease-out;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--jely-scrim);
+    animation: j-fade-in 140ms ease-out;
 }
 
-.j-handoff__head {
+.j-modal__card {
+    display: flex;
+    flex-direction: column;
+    width: min(640px, 100%);
+    max-height: 100%;
+    border: 1px solid var(--jely-line);
+    border-radius: var(--jely-radius-panel);
+    background: var(--jely-surface);
+    box-shadow: var(--jely-shadow);
+    overflow: hidden;
+    animation: j-panel-in 160ms ease-out;
+}
+
+/* The card takes focus on open so a screen reader announces the dialog, but it is not a
+ * control and must not wear a control's ring -- that belongs to the close button, the link
+ * and "Not now" inside it. */
+.j-modal__card:focus-visible {
+    outline: none;
+}
+
+.j-modal__head {
     display: flex;
     align-items: flex-start;
-    gap: 11px;
-    padding: 15px 14px 14px 15px;
+    gap: 12px;
+    flex: 0 0 auto;
+    padding: 16px 15px 15px 18px;
     border-bottom: 1px solid var(--jely-line-soft);
     background: var(--jely-surface-header);
 }
 
-.j-handoff__tile {
+.j-modal__tile {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     flex: 0 0 auto;
     border-radius: 10px;
     background: rgba(37, 211, 102, 0.14);
     color: var(--jely-whatsapp);
 }
 
-.j-handoff__scroll {
+.j-modal__heading {
     flex: 1 1 auto;
+    min-width: 0;
+}
+
+.j-modal__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.012em;
+    line-height: 1.3;
+}
+
+.j-modal__subtitle {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--jely-muted);
+}
+
+/* Two columns, as the sample draws them: everything the visitor reads and acts on at the
+ * left, the QR at the right. overflow-y is a floor, not the layout -- at the card's own
+ * size nothing scrolls; it exists so a 500px-tall laptop window degrades to a scroll
+ * instead of clipping the consent line. */
+.j-modal__body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 14px 15px 16px;
     display: flex;
-    flex-direction: column;
-    gap: 13px;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 16px 18px;
     scrollbar-width: thin;
 }
 
-.j-recap {
-    border: 1px solid var(--jely-line-soft);
-    border-radius: var(--jely-radius-card);
-    background: var(--jely-surface-header);
-    padding: 11px 12px 10px;
-}
-
-.j-recap__label {
-    margin: 0 0 9px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.11em;
-    text-transform: uppercase;
-    color: var(--jely-faint);
-}
-
-.j-recap__line {
+.j-modal__main {
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
-    margin-bottom: 7px;
+    flex-direction: column;
+    gap: 13px;
 }
 
-.j-recap__line--visitor {
-    justify-content: flex-end;
-}
-
-.j-recap__bubble {
-    max-width: 88%;
-    padding: 7px 10px;
-    border-radius: 10px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--jely-muted);
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-.j-recap__foot {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-top: 10px;
-    padding-top: 9px;
-    border-top: 1px solid var(--jely-line-soft);
-    font-size: 11.5px;
-    color: var(--jely-muted);
-}
-
-.j-qr {
+.j-modal__side {
+    flex: 0 0 188px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 9px;
 }
 
+.j-modal__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* The two steps. An <ol> with a CSS counter, not hardcoded numerals: when the QR cannot be
+ * drawn, step 1 is replaced rather than dropped, and the counter keeps the pair reading 1
+ * and 2 whatever ends up in them.
+ *
+ * Full-strength text at 13px, not the 12px muted grey the bullets here used to be. These
+ * are the only two things the visitor has to do; they are the content of the view, not a
+ * footnote to it. */
+.j-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: j-step;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.j-step {
+    counter-increment: j-step;
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--jely-fg);
+}
+
+.j-step::before {
+    content: counter(j-step);
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 21px;
+    height: 21px;
+    margin-top: 1px;
+    border-radius: 999px;
+    background: var(--jely-raised-strong);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1;
+}
+
+/* What the recap card used to say, in one line. */
+.j-assurance {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--jely-muted);
+}
+
+.j-assurance svg {
+    flex: 0 0 auto;
+    color: var(--jely-whatsapp);
+}
+
+/* The border is invisible on the dark palette -- a dark line around a white tile on a
+ * near-black card -- and is what keeps the tile readable as a tile on the light one, where
+ * it is otherwise white on white. */
 .j-qr__tile {
-    width: 148px;
-    height: 148px;
-    padding: 8px;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 10px;
+    border: 1px solid var(--jely-line-soft);
     border-radius: var(--jely-radius-card);
     background: var(--jely-qr-tile);
 }
@@ -820,36 +937,6 @@ a {
     display: block;
     width: 100%;
     height: 100%;
-}
-
-.j-qr__caption {
-    margin: 0;
-    max-width: 250px;
-    text-align: center;
-    font-size: 11.5px;
-    line-height: 1.45;
-    color: var(--jely-muted);
-}
-
-.j-bullets {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.j-bullet {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--jely-muted);
-}
-
-.j-bullet svg {
-    flex: 0 0 auto;
-    margin-top: 1px;
-    color: var(--jely-faint);
 }
 
 .j-primary {
@@ -873,6 +960,14 @@ a {
     filter: brightness(0.94);
 }
 
+/* The one control in the widget that is NOT the org's accent colour. It opens WhatsApp,
+ * and a visitor deciding whether to move there recognises the green faster than they read
+ * the label. */
+.j-primary--whatsapp {
+    background: var(--jely-whatsapp);
+    color: #06331b;
+}
+
 .j-subtle {
     align-self: center;
     padding: 4px 8px;
@@ -886,7 +981,10 @@ a {
 }
 
 .j-consent {
+    flex: 0 0 auto;
     margin: 0;
+    padding: 11px 18px 14px;
+    border-top: 1px solid var(--jely-line-soft);
     font-size: 10.5px;
     line-height: 1.5;
     color: var(--jely-faint);
@@ -929,11 +1027,37 @@ a {
         width: calc(100vw - 24px);
         max-height: calc(100vh - 24px);
     }
+
+    .j-modal {
+        padding: 12px;
+    }
+}
+
+/* The two-column body needs about 560px to breathe. Below that the recap and the QR both
+ * squeeze until neither reads, so the card becomes one column -- with the QR AFTER the
+ * call to action, because scanning it with the phone already holding it is a no-op and it
+ * must not push "Open WhatsApp" off the screen.
+ *
+ * Its own breakpoint, wider than the panel's: this is the card's layout giving way, which
+ * happens well before a viewport is narrow enough for the panel to go full-bleed. */
+@media (max-width: 620px) {
+    .j-modal__body {
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .j-modal__side {
+        flex: 0 0 auto;
+        align-self: center;
+        width: 100%;
+        max-width: 220px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .j-panel,
-    .j-handoff {
+    .j-modal,
+    .j-modal__card {
         animation: none;
     }
 

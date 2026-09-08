@@ -60,25 +60,27 @@ export interface WidgetCopy {
 
     // --- WhatsApp handoff ---------------------------------------------------
     continueOnWhatsApp: string;
-    /** Right-hand hint on the greeting card's WhatsApp row. */
-    continueHintOptional: string;
     /** Right-hand hint on the chat view's WhatsApp row. */
     continueHintSameConversation: string;
     handoffTitle: string;
     handoffSubtitle: string;
-    handoffRecapLabel: string;
+    /** Step 1 of 2. Replaced by `handoffStepNoQr` when the QR could not be drawn. */
+    handoffStepScan: string;
+    /** Step 1's stand-in when there is no QR: the button is the only route left. */
+    handoffStepNoQr: string;
+    /**
+     * Step 2 of 2, and the one the handoff actually depends on: the prefilled message
+     * carries the ref that links the conversation, so it has to be SENT, and unedited.
+     */
+    handoffStepSend: string;
     handoffStaysConnected: string;
-    handoffDevices: string;
-    handoffNothingToType: string;
-    handoffQrCaption: string;
-    handoffQrUnavailable: string;
+    /** The QR's accessible name. It has no visible caption — step 1 says what it is for. */
+    handoffQrAria: string;
     handoffPhoneLine: (phoneDisplay: string) => string;
     handoffOpen: string;
     handoffNotNow: string;
     handoffConsent: string;
     handoffCloseAria: string;
-    /** Shown when the visitor asks for the handoff before sending anything. */
-    handoffNeedsMessage: string;
 
     // --- Terminal states (E5) ----------------------------------------------
     linkedTitle: string;
@@ -121,23 +123,20 @@ export const copy: WidgetCopy = {
     transcriptAria: "Conversation",
 
     continueOnWhatsApp: "Continue on WhatsApp",
-    continueHintOptional: "Optional",
     continueHintSameConversation: "Same conversation, on WhatsApp",
     handoffTitle: "Continue this conversation on WhatsApp",
     handoffSubtitle: "Same conversation — now on WhatsApp.",
-    handoffRecapLabel: "Moving with you",
+    handoffStepScan: "Scan this code with WhatsApp on your phone.",
+    handoffStepNoQr: "Open WhatsApp with the button below.",
+    handoffStepSend: "Send the message that appears, unchanged — the ID inside it reconnects this conversation.",
     handoffStaysConnected: "Your conversation will stay connected",
-    handoffDevices: "Continue on your phone, the desktop app, or WhatsApp Web.",
-    handoffNothingToType: "Nothing to type — the message is written for you.",
-    handoffQrCaption: "Scan the code with your phone, or open WhatsApp on this device.",
-    handoffQrUnavailable: "Use the button below to open WhatsApp on this device.",
+    handoffQrAria: "QR code for continuing this conversation on WhatsApp",
     handoffPhoneLine: (phoneDisplay) => `You'll be messaging ${phoneDisplay}`,
     handoffOpen: "Open WhatsApp",
     handoffNotNow: "Not now — keep chatting here",
     handoffConsent:
         "By continuing, you agree to receive messages about this request on WhatsApp. You can stop them at any time.",
     handoffCloseAria: "Close",
-    handoffNeedsMessage: "Send your first message here, then you can move it to WhatsApp.",
 
     linkedTitle: "You're connected on WhatsApp",
     linkedBody: "This conversation continues on WhatsApp — anything new will arrive there.",
