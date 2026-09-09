@@ -206,7 +206,11 @@ export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetSta
             return { ...state, phase: "chat", handoff: null };
 
         case "startNewChat":
-            if (state.phase !== "linked" && state.phase !== "closed") return state;
+            // Any phase that HAS a conversation, not only the terminal two. The chat header
+            // offers this while the conversation is still live, and the guard used to make
+            // that button do nothing at all. `idle` and `greeting` are excluded because
+            // there is nothing to abandon — the visitor is already on a fresh chat.
+            if (state.phase === "idle" || state.phase === "greeting") return state;
             return { ...initialWidgetState({ open: true }), phase: "greeting" };
 
         case "messagesSeen":

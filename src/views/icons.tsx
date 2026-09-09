@@ -48,6 +48,16 @@ export function CloseIcon({ size = 16 }: IconProps) {
     );
 }
 
+/** A compose square — "start a new chat", the same shape every messaging client uses. */
+export function NewChatIcon({ size = 16 }: IconProps) {
+    return (
+        <svg {...stroke(size)}>
+            <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z" />
+        </svg>
+    );
+}
+
 export function ArrowUpIcon({ size = 15 }: IconProps) {
     return (
         <svg {...stroke(size)} strokeWidth={2}>

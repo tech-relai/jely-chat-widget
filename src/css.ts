@@ -314,6 +314,13 @@ a {
     color: var(--jely-fg);
 }
 
+/* Pulls the close button back from the header's 11px gap so the two controls read as one
+ * cluster — but not so close that "start a new chat", which discards the transcript the
+ * visitor is looking at, becomes a mis-click on the way to closing the panel. */
+.j-iconbutton--close {
+    margin-left: -5px;
+}
+
 .j-body {
     padding: 14px 15px 15px;
     display: flex;
@@ -543,6 +550,33 @@ a {
     color: var(--jely-whatsapp);
     display: inline-flex;
     flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Powered-by badge
+   --------------------------------------------------------------------------- */
+
+.j-powered {
+    padding: 6px 15px 7px;
+    border-top: 1px solid var(--jely-line-soft);
+    background: var(--jely-surface-header);
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 0.01em;
+    color: var(--jely-faint);
+}
+
+.j-powered a {
+    font-weight: 600;
+    color: var(--jely-muted);
+    text-decoration: none;
+    transition: color 120ms ease;
+}
+
+.j-powered a:hover {
+    color: var(--jely-fg);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------------------

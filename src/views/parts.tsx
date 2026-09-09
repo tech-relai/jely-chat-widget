@@ -134,6 +134,30 @@ export function WhatsAppRow({ hint, onOpen }: { hint: string; onOpen: () => void
     );
 }
 
+/**
+ * Where the badge points, and what it reads as. Neither is in `copy.ts`: a URL is not a
+ * translatable sentence, and the label is the domain itself.
+ */
+const JELY_URL = "https://jely.chat";
+const JELY_LABEL = "jely.chat";
+
+/**
+ * The attribution line at the foot of every panel — deliberately the quietest thing in the
+ * widget. It is 10px and `--jely-faint`, so it reads as a mark on the surface rather than
+ * as a link competing with the composer above it; only the domain is a target, and it only
+ * underlines on hover.
+ */
+export function PoweredBy() {
+    return (
+        <p className="j-powered">
+            {copy.poweredBy}{" "}
+            <a href={JELY_URL} target="_blank" rel="noopener noreferrer">
+                {JELY_LABEL}
+            </a>
+        </p>
+    );
+}
+
 export function ErrorNote({ message, onDismiss }: { message: string; onDismiss: () => void }) {
     return (
         <p className="j-error" role="status">

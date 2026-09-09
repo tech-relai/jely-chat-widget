@@ -272,6 +272,12 @@ widget and nothing else. `examples/next-app/README.md` says how to run it.
 the built widget against it, so the whole flow — greeting, chat, agent reply, WhatsApp
 handoff, linked and closed states — can be walked without a backend. See `smoke/README.md`.
 
+## Releasing
+
+`RELEASING.md` in this repository is the checklist for shipping a change to npm — the checks,
+the smoke walk, when to bump, and the rules that cannot be undone once a version is published.
+It is a maintainer document and is not part of the published package.
+
 ---
 
 ## Requirements

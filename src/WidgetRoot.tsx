@@ -26,7 +26,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { accentCssVariables, resolveAppearance } from "./appearance";
 import { JelyApiError, createWidgetApiClient } from "./api";
 import { copy } from "./copy";
-import { clearWidgetStorage, readWidgetStorage, removeWidgetStorageFields, writeWidgetStorage } from "./storage";
+import { clearWidgetStorage, expireStaleSession, removeWidgetStorageFields, writeWidgetStorage } from "./storage";
 import { initialWidgetState, pollCursor, widgetReducer } from "./state";
 import { WIDGET_MESSAGE_MAX_CHARS, type WidgetAppearance, type WidgetPublicConfigResponse } from "./types";
 import { usePolling } from "./usePolling";
@@ -50,7 +50,9 @@ export interface WidgetRootProps {
 export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverride, defaultOpen }: WidgetRootProps) {
     const client = useMemo(() => createWidgetApiClient({ widgetKey, apiBaseUrl }), [widgetKey, apiBaseUrl]);
 
-    const stored = useMemo(() => readWidgetStorage(widgetKey), [widgetKey]);
+    // Read once, and let a stale conversation go before anything reads a token out of it
+    // — see `expireStaleSession` for why the pruning happens here and not in an effect.
+    const stored = useMemo(() => expireStaleSession(widgetKey, Date.now()), [widgetKey]);
     const [config, setConfig] = useState<WidgetPublicConfigResponse | null>(null);
     const [unavailable, setUnavailable] = useState(false);
     const [sessionToken, setSessionToken] = useState<string | null>(stored.sessionToken ?? null);
@@ -157,13 +159,16 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                     after: pollCursor(stateRef.current),
                     signal,
                 });
+                // `after: pollCursor(...)` above means a non-empty list is genuinely NEW —
+                // an operator reply keeps the conversation alive, a quiet poll does not.
+                if (response.messages.length > 0) writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
                 dispatch({ type: "polled", conversation: response.conversation, messages: response.messages });
             } catch (error) {
                 if (error instanceof JelyApiError && error.isSessionGone) discardSession();
                 // Everything else is a tick that produced nothing; the next one follows.
             }
         },
-        [client, discardSession],
+        [client, discardSession, widgetKey],
     );
 
     const terminal = state.phase === "linked" || state.phase === "closed";
@@ -197,7 +202,7 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
             dispatch({ type: "sendStarted" });
             try {
                 const response = await client.startConversation({ body, ...visitorContext() });
-                writeWidgetStorage(widgetKey, { sessionToken: response.sessionToken });
+                writeWidgetStorage(widgetKey, { sessionToken: response.sessionToken, sessionUpdatedAt: Date.now() });
                 setSessionToken(response.sessionToken);
                 dispatch({
                     type: "conversationStarted",
@@ -218,6 +223,7 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
             dispatch({ type: "sendStarted" });
             try {
                 const response = await client.postMessage({ body }, { sessionToken: token });
+                writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
                 dispatch({ type: "messageSent", message: response.message });
             } catch (error) {
                 // A DEAD SESSION IS NOT A FAILED SEND. Before this, a 401 here showed the

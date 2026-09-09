@@ -22,10 +22,10 @@ import { useEffect, useRef, useState } from "react";
 import { copy } from "../copy";
 import { formatClockTime, formatDayMark, startsNewDay } from "../time";
 import type { WidgetAppearance, WidgetMessageView } from "../types";
-import { ChevronDownIcon, CloseIcon } from "./icons";
+import { ChevronDownIcon, CloseIcon, NewChatIcon } from "./icons";
 import { ClosedState } from "./ClosedState";
 import { LinkedState } from "./LinkedState";
-import { Avatar, Composer, ErrorNote, WhatsAppRow } from "./parts";
+import { Avatar, Composer, ErrorNote, PoweredBy, WhatsAppRow } from "./parts";
 
 export interface ChatViewProps {
     appearance: WidgetAppearance;
@@ -96,9 +96,22 @@ export function ChatView(props: ChatViewProps) {
                     </h2>
                     <p className="j-header__identity">{appearance.replyTimeText}</p>
                 </div>
+                {/* Only while the conversation is live: the linked and closed states carry
+                    their own, larger "Start a new chat" and do not need a second one. */}
+                {lock === null && (
+                    <button
+                        type="button"
+                        className="j-iconbutton"
+                        onClick={props.onStartNewChat}
+                        aria-label={copy.startNewChat}
+                        title={copy.startNewChat}
+                    >
+                        <NewChatIcon />
+                    </button>
+                )}
                 <button
                     type="button"
-                    className="j-iconbutton"
+                    className="j-iconbutton j-iconbutton--close"
                     onClick={props.onMinimize}
                     aria-label={copy.minimizeAria}
                 >
@@ -159,6 +172,8 @@ export function ChatView(props: ChatViewProps) {
             {lock === null && props.whatsappAvailable && (
                 <WhatsAppRow hint={copy.continueHintSameConversation} onOpen={props.onOpenHandoff} />
             )}
+
+            <PoweredBy />
         </section>
     );
 }

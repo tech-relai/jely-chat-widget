@@ -82,6 +82,13 @@ export interface WidgetCopy {
     handoffConsent: string;
     handoffCloseAria: string;
 
+    /**
+     * The badge at the foot of the panel. The domain that follows it is NOT here — a
+     * product name is exempt from translation by this file's header, the same carve-out
+     * "WhatsApp" has, and a domain doubly so.
+     */
+    poweredBy: string;
+
     // --- Terminal states (E5) ----------------------------------------------
     linkedTitle: string;
     linkedBody: string;
@@ -137,6 +144,8 @@ export const copy: WidgetCopy = {
     handoffConsent:
         "By continuing, you agree to receive messages about this request on WhatsApp. You can stop them at any time.",
     handoffCloseAria: "Close",
+
+    poweredBy: "Powered by",
 
     linkedTitle: "You're connected on WhatsApp",
     linkedBody: "This conversation continues on WhatsApp — anything new will arrive there.",

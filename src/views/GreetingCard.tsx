@@ -28,7 +28,7 @@ import { resolveCta } from "../appearance";
 import { copy } from "../copy";
 import type { WidgetAppearance } from "../types";
 import { CloseIcon, ExternalLinkIcon, GuestIcon } from "./icons";
-import { Avatar, Composer, ErrorNote } from "./parts";
+import { Avatar, Composer, ErrorNote, PoweredBy } from "./parts";
 
 export interface GreetingCardProps {
     appearance: WidgetAppearance;
@@ -93,6 +93,8 @@ export function GreetingCard(props: GreetingCardProps) {
                     <span>{copy.guestNote}</span>
                 </p>
             </div>
+
+            <PoweredBy />
         </section>
     );
 }
