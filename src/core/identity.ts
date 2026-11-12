@@ -5,7 +5,7 @@
  *
  * NORMALISED BEFORE IT IS SENT, so a host's form data never costs the visitor a request:
  * every field is trimmed, a blank one is dropped, and one the server would refuse (over the
- * contract's length, or an email that does not look like one) is dropped too rather than
+ * contract's length, or an email its validator rejects) is dropped too rather than
  * truncated — a cut-off email is a wrong email. When nothing is left, nothing is sent.
  */
 
@@ -19,10 +19,13 @@ export interface JelyChatIdentity {
 }
 
 /**
- * A deliberately loose email shape: something@something.tld with no spaces. The server's
- * check is stricter; anything it still refuses is dropped there (see `createJelyChat`).
+ * The exact pattern the server's validator applies to `identity.email`: zod 3.25.76's
+ * `.email()` (`emailRegex` in `zod/v3/types.js`), copied byte for byte so an email the
+ * widget sends is one the API accepts. ASCII only — `josé@example.com` or
+ * `name@münchen.de` are refused there, so they are dropped here. Re-check it when the
+ * backend's zod version changes.
  */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_PATTERN = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
 
 function field(value: unknown, maxChars: number): string | undefined {
     if (typeof value !== "string") return undefined;
@@ -36,7 +39,7 @@ export function normalizeIdentity(input: JelyChatIdentity | null | undefined): W
     if (input === null || input === undefined || typeof input !== "object") return null;
     const name = field(input.name, WIDGET_IDENTITY_LIMITS.nameMaxChars);
     const rawEmail = field(input.email, WIDGET_IDENTITY_LIMITS.emailMaxChars);
-    const email = rawEmail !== undefined && EMAIL_SHAPE.test(rawEmail) ? rawEmail : undefined;
+    const email = rawEmail !== undefined && EMAIL_PATTERN.test(rawEmail) ? rawEmail : undefined;
     const workspace = field(input.workspace, WIDGET_IDENTITY_LIMITS.workspaceMaxChars);
     if (name === undefined && email === undefined && workspace === undefined) return null;
     return {
@@ -44,6 +47,17 @@ export function normalizeIdentity(input: JelyChatIdentity | null | undefined): W
         ...(email !== undefined ? { email } : {}),
         ...(workspace !== undefined ? { workspace } : {}),
     };
+}
+
+/**
+ * The same identity without its email, or null when there was no email or nothing else is
+ * left. The one fallback after the server refuses an identity: name and workspace are
+ * plain bounded strings, so an email is the likely culprit.
+ */
+export function withoutEmail(identity: WidgetVisitorIdentity): WidgetVisitorIdentity | null {
+    if (identity.email === undefined) return null;
+    const { email: _email, ...rest } = identity;
+    return rest.name === undefined && rest.workspace === undefined ? null : rest;
 }
 
 /**

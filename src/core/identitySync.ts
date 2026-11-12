@@ -8,15 +8,21 @@
  * distinct identity — the fingerprint of what this session already sent is kept in storage,
  * so a reload or a re-render sends nothing. A failure is never shown to the visitor and is
  * not retried on a timer (so a 429 cannot loop): the next change, or the next page load,
- * tries again. An identity the server refuses as invalid is remembered for this page and not
- * sent again, and it never costs the visitor their first message — the start is retried
- * once without it.
+ * tries again.
+ *
+ * A REFUSED IDENTITY. Normalising already applies the server's own email pattern, so this is
+ * rare. A 400 counts as the identity's fault only when its details name `identity` (the
+ * API's VALIDATION_ERROR carries zod's `flatten()`: `{ formErrors, fieldErrors }`); any other
+ * 400 on a start is the visitor's message and is surfaced as before. A refused identity is
+ * remembered for this page and not sent again, and it is retried ONCE without its email
+ * when a name or workspace remains — on a start that is the one retry, so the visitor's
+ * first message is never lost to it.
  */
 
 import { JelyApiError, type WidgetApiClient } from "../api";
 import { readWidgetStorage, writeWidgetStorage } from "../storage";
 import type { StartWidgetConversationResponse, WidgetVisitorIdentity } from "../types";
-import { identityFingerprint, normalizeIdentity, type JelyChatIdentity } from "./identity";
+import { identityFingerprint, normalizeIdentity, withoutEmail, type JelyChatIdentity } from "./identity";
 import { visitorContext } from "./visitor";
 
 export interface IdentitySyncDeps {
@@ -45,6 +51,15 @@ export interface IdentitySync {
     ): Promise<{ response: StartWidgetConversationResponse; identitySent: string | null }>;
 }
 
+/** A VALIDATION_ERROR whose zod `fieldErrors` name `identity` — not the message body. */
+function isIdentityRejection(error: unknown): boolean {
+    if (!(error instanceof JelyApiError) || error.code !== "VALIDATION_ERROR") return false;
+    const details = error.details;
+    if (typeof details !== "object" || details === null) return false;
+    const fieldErrors = (details as { fieldErrors?: unknown }).fieldErrors;
+    return typeof fieldErrors === "object" && fieldErrors !== null && "identity" in fieldErrors;
+}
+
 export function createIdentitySync(deps: IdentitySyncDeps, initial: JelyChatIdentity | undefined): IdentitySync {
     const { client, widgetKey } = deps;
     // The host's visitor identity, normalised; null when there is nothing to send.
@@ -53,6 +68,29 @@ export function createIdentitySync(deps: IdentitySyncDeps, initial: JelyChatIden
     let rejectedFingerprint: string | null = null;
     let identifying = false;
     let identifyAgain = false;
+
+    /** One `POST /conversation/identity`. Records it for the session it was sent to on success. */
+    async function send(token: string, value: WidgetVisitorIdentity): Promise<"sent" | "rejected" | "failed"> {
+        try {
+            await client.identify({ identity: value }, { sessionToken: token, signal: deps.signal });
+            // Only for the session it was sent to: a new chat may have started meanwhile.
+            if (deps.getSessionToken() === token) {
+                writeWidgetStorage(widgetKey, {
+                    identitySent: identityFingerprint(value),
+                    sessionUpdatedAt: Date.now(),
+                });
+            }
+            return "sent";
+        } catch (error) {
+            if (error instanceof JelyApiError && error.isSessionGone) {
+                if (deps.getSessionToken() === token) deps.onSessionGone();
+                return "failed";
+            }
+            // Anything else but a refused identity (offline, 429, 5xx): left for the next
+            // change or page load.
+            return isIdentityRejection(error) ? "rejected" : "failed";
+        }
+    }
 
     async function flush(): Promise<void> {
         const token = deps.getSessionToken();
@@ -68,18 +106,14 @@ export function createIdentitySync(deps: IdentitySyncDeps, initial: JelyChatIden
 
         identifying = true;
         try {
-            await client.identify({ identity: current }, { sessionToken: token, signal: deps.signal });
-            // Only for the session it was sent to: a new chat may have started meanwhile.
-            if (deps.getSessionToken() === token) {
-                writeWidgetStorage(widgetKey, { identitySent: fingerprint, sessionUpdatedAt: Date.now() });
-            }
-        } catch (error) {
-            if (error instanceof JelyApiError && error.isSessionGone) {
-                if (deps.getSessionToken() === token) deps.onSessionGone();
-            } else if (error instanceof JelyApiError && error.code === "VALIDATION_ERROR") {
+            if ((await send(token, current)) === "rejected") {
                 rejectedFingerprint = fingerprint;
+                // The one fallback, never retried itself.
+                const fallback = withoutEmail(current);
+                if (fallback !== null && identityFingerprint(fallback) !== readWidgetStorage(widgetKey).identitySent) {
+                    await send(token, fallback);
+                }
             }
-            // Anything else (offline, 429, 5xx): left for the next change or page load.
         } finally {
             identifying = false;
             // A different identity arrived while this one was in flight; the same one is not
@@ -110,9 +144,15 @@ export function createIdentitySync(deps: IdentitySyncDeps, initial: JelyChatIden
                 const response = await client.startConversation({ ...request, identity: attached });
                 return { response, identitySent: fingerprint };
             } catch (error) {
-                if (!(error instanceof JelyApiError) || error.code !== "VALIDATION_ERROR") throw error;
+                if (!isIdentityRejection(error)) throw error;
                 rejectedFingerprint = fingerprint;
-                return { response: await client.startConversation(request), identitySent: null };
+                // The one retry: without the email when something else remains, else without
+                // any identity. Its own failure is the visitor's send failure, as before.
+                const fallback = withoutEmail(attached);
+                const response = await client.startConversation(
+                    fallback !== null ? { ...request, identity: fallback } : request,
+                );
+                return { response, identitySent: fallback !== null ? identityFingerprint(fallback) : null };
             }
         },
     };

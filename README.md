@@ -179,7 +179,8 @@ labelled with it on Jely's Support page and in Slack instead of its six-characte
 
 - **Every field is optional.** Fields are trimmed and blank ones are ignored; a field you
   leave out is cleared on the conversation. A field the API would refuse — longer than 120
-  characters (254 for `email`), or an `email` that is not shaped like one — is left out.
+  characters (254 for `email`), or an `email` the API's validator rejects (it accepts ASCII
+  addresses only) — is left out.
 - **It can change at any time.** When a visitor logs in mid-chat, the conversation they
   already started is updated rather than a new one begun. It is sent once per distinct
   value, so passing a new object literal on every render costs nothing.

@@ -9,7 +9,7 @@
  *
  * Mirrored on: 2026-11-12
  * Source sha256: d8ab7b6933f42c03a8f54ea7979003f44fca8d4f6909491bf4cdd9b2a0fb7936
- *                (of `widgetPublic.contract.ts`, 436 lines, at mirror time)
+ *                (of `widgetPublic.contract.ts`, 434 lines, at mirror time)
  *
  * WHY THIS FILE EXISTS (decision F7). This package must not depend on either Jely
  * repo: it is published to npm and installed on customer websites, and the contract
