@@ -19,6 +19,8 @@ import {
     type GetWidgetConversationResponse,
     type GetWidgetMessagesQuery,
     type GetWidgetMessagesResponse,
+    type IdentifyWidgetConversationRequest,
+    type IdentifyWidgetConversationResponse,
     type PostWidgetMessageRequest,
     type PostWidgetMessageResponse,
     type RequestWidgetHandoffResponse,
@@ -157,6 +159,10 @@ export interface WidgetApiClient {
     getMessages(options: SessionRequestOptions & GetWidgetMessagesQuery): Promise<GetWidgetMessagesResponse>;
     postMessage(body: PostWidgetMessageRequest, options: SessionRequestOptions): Promise<PostWidgetMessageResponse>;
     requestHandoff(options: SessionRequestOptions): Promise<RequestWidgetHandoffResponse>;
+    identify(
+        body: IdentifyWidgetConversationRequest,
+        options: SessionRequestOptions,
+    ): Promise<IdentifyWidgetConversationResponse>;
 }
 
 export function createWidgetApiClient(options: WidgetApiClientOptions): WidgetApiClient {
@@ -254,6 +260,15 @@ export function createWidgetApiClient(options: WidgetApiClientOptions): WidgetAp
             request<PostWidgetMessageResponse>({
                 method: "POST",
                 path: "/conversation/messages",
+                body,
+                sessionToken: opts.sessionToken,
+                signal: opts.signal,
+            }),
+
+        identify: (body, opts) =>
+            request<IdentifyWidgetConversationResponse>({
+                method: "POST",
+                path: "/conversation/identity",
                 body,
                 sessionToken: opts.sessionToken,
                 signal: opts.signal,

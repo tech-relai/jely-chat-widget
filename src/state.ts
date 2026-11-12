@@ -80,7 +80,13 @@ export type WidgetEvent =
      * A stored session resolved on mount: the server told us the conversation's current
      * state, and the transcript came with it.
      */
-    | { type: "sessionRestored"; conversation: WidgetConversationView; messages: WidgetMessageView[] }
+    | {
+          type: "sessionRestored";
+          conversation: WidgetConversationView;
+          messages: WidgetMessageView[];
+          /** False while the tab is hidden: nothing counts as seen then. Defaults to true. */
+          visible?: boolean;
+      }
     /** The stored session is unusable (SESSION_INVALID / CONVERSATION_NOT_FOUND) — forget it. */
     | { type: "sessionDiscarded" }
     /** A write started (first message, reply, handoff request). */
@@ -92,7 +98,13 @@ export type WidgetEvent =
     /** A write failed. `sending` is cleared; `phase` is untouched unless the server moved it. */
     | { type: "sendFailed"; error: WidgetError }
     /** A poll returned. Both the conversation state and any new messages arrive together. */
-    | { type: "polled"; conversation: WidgetConversationView; messages: WidgetMessageView[] }
+    | {
+          type: "polled";
+          conversation: WidgetConversationView;
+          messages: WidgetMessageView[];
+          /** False while the tab is hidden: replies stay unread. Defaults to true. */
+          visible?: boolean;
+      }
     /** The handoff modal is up, with the payload the server returned. */
     | { type: "handoffOpened"; handoff: RequestWidgetHandoffResponse }
     /** "Not now — keep chatting here". */
@@ -141,14 +153,17 @@ export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetSta
 
         case "sessionRestored": {
             const messages = mergeMessages([], event.messages);
-            return markSeenIfOpen({
-                ...state,
-                phase: phaseForConversation(event.conversation),
-                conversation: event.conversation,
-                messages,
-                unreadCount: countUnread(messages, state.lastSeenMessageId),
-                error: null,
-            });
+            return markSeenIfOpen(
+                {
+                    ...state,
+                    phase: phaseForConversation(event.conversation),
+                    conversation: event.conversation,
+                    messages,
+                    unreadCount: countUnread(messages, state.lastSeenMessageId),
+                    error: null,
+                },
+                event.visible,
+            );
         }
 
         case "sessionDiscarded":
@@ -193,7 +208,7 @@ export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetSta
                 // opened from is now describing something that already happened.
                 handoff: phase === "linked" || phase === "closed" ? null : state.handoff,
             };
-            return markSeenIfOpen(next);
+            return markSeenIfOpen(next, event.visible);
         }
 
         case "handoffOpened":
@@ -248,9 +263,12 @@ function nextPhaseFromServer(phase: WidgetPhase, conversation: WidgetConversatio
     return phase;
 }
 
-/** Mark the transcript read, but only while the panel is actually in front of the visitor. */
-function markSeenIfOpen(state: WidgetState): WidgetState {
-    return state.open ? markSeen(state) : state;
+/**
+ * Mark the transcript read, but only while the panel is actually in front of the visitor:
+ * open, and in a tab they are looking at (`visible`, true unless the caller knows better).
+ */
+function markSeenIfOpen(state: WidgetState, visible = true): WidgetState {
+    return state.open && visible ? markSeen(state) : state;
 }
 
 function markSeen(state: WidgetState): WidgetState {

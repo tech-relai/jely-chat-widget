@@ -34,6 +34,7 @@ import { WIDGET_CSS } from "./css";
 import { currentPathname, matchesRoutes } from "./routes";
 import { applyWidgetStyles } from "./styles";
 import type { WidgetAppearance } from "./types";
+import type { JelyChatIdentity } from "./core/identity";
 import { POLL_INTERVAL_OPEN_MS } from "./core/polling";
 import { WidgetRoot } from "./WidgetRoot";
 
@@ -53,6 +54,13 @@ export interface JelyChatWidgetProps {
     appearance?: Partial<WidgetAppearance>;
     /** Open the panel instead of the launcher on first load. Defaults to `false`. */
     defaultOpen?: boolean;
+    /**
+     * Who the visitor is on your site — e.g. your logged-in user. Labels the conversation on
+     * the Support page and in Slack. Display-only and not verified. Can change at any time
+     * (after login, say): the current conversation is updated, once per distinct value.
+     * Blank fields are ignored; a field you leave out is cleared.
+     */
+    identity?: JelyChatIdentity;
 }
 
 /**
@@ -67,7 +75,7 @@ const HOST_ATTRIBUTE = "data-jely-widget";
 let cspWarningShown = false;
 
 export function JelyChatWidget(props: JelyChatWidgetProps) {
-    const { widgetKey, apiBaseUrl, routes, appearance } = props;
+    const { widgetKey, apiBaseUrl, routes, appearance, identity } = props;
     const position = props.position ?? "bottom-right";
     const defaultOpen = props.defaultOpen ?? false;
 
@@ -162,6 +170,7 @@ export function JelyChatWidget(props: JelyChatWidgetProps) {
             apiBaseUrl={apiBaseUrl}
             appearance={appearance}
             defaultOpen={defaultOpen}
+            identity={identity}
         />,
         shadowRoot,
     );

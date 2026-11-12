@@ -12,9 +12,13 @@
  * code becomes the sentence a visitor reads.
  */
 
+import { useEffect } from "react";
+
 import { accentCssVariables, resolveAppearance } from "./appearance";
 import { copy } from "./copy";
 import type { WidgetError } from "./core/errors";
+import type { JelyChatIdentity } from "./core/identity";
+import { isDocumentHidden } from "./core/polling";
 import { WIDGET_MESSAGE_MAX_CHARS, type WidgetAppearance } from "./types";
 import { useJelyChat } from "./react/useJelyChat";
 import { ChatView } from "./views/ChatView";
@@ -27,6 +31,7 @@ export interface WidgetRootProps {
     apiBaseUrl?: string;
     appearance?: Partial<WidgetAppearance>;
     defaultOpen: boolean;
+    identity?: JelyChatIdentity;
 }
 
 /**
@@ -34,8 +39,25 @@ export interface WidgetRootProps {
  * of the widget key, so a host that swaps keys gets a clean remount instead of a component
  * holding one org's session against another org's config.
  */
-export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverride, defaultOpen }: WidgetRootProps) {
-    const { chat, state } = useJelyChat({ widgetKey, apiBaseUrl, defaultOpen });
+export function WidgetRoot({
+    widgetKey,
+    apiBaseUrl,
+    appearance: appearanceOverride,
+    defaultOpen,
+    identity,
+}: WidgetRootProps) {
+    const { chat, state } = useJelyChat({ widgetKey, apiBaseUrl, defaultOpen, identity });
+
+    // A reply that arrived in a background tab stays unread until the visitor comes back;
+    // coming back with the panel open is seeing it.
+    useEffect(() => {
+        if (chat === null || typeof document === "undefined") return;
+        const onVisibilityChange = () => {
+            if (!isDocumentHidden() && chat.getState().open) chat.markSeen();
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    }, [chat]);
 
     if (chat === null || state === null || state.unavailable || state.config === null) return null;
 
@@ -103,7 +125,10 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                     onOpenHandoff={chat.requestHandoff}
                     onDismissError={chat.clearError}
                     onMinimize={chat.close}
-                    onSeen={chat.markSeen}
+                    // The transcript reaching its bottom in a hidden tab is not the visitor seeing it.
+                    onSeen={() => {
+                        if (!isDocumentHidden()) chat.markSeen();
+                    }}
                     onStartNewChat={chat.startNewChat}
                 />
             )}

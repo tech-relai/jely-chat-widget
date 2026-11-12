@@ -8,7 +8,7 @@
  * break on a customer's site.
  */
 
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { JelyChatWidget } from "@jely/chat-widget";
 
@@ -25,7 +25,12 @@ function control(action: "reply" | "link" | "close" | "reset", write: (line: str
         .catch((error: unknown) => write(`${action}: ${error instanceof Error ? error.message : "failed"}`));
 }
 
+/** `?user=1` starts the page "logged in", to check the identity riding on the first message. */
+const STARTS_LOGGED_IN = new URLSearchParams(window.location.search).get("user") === "1";
+
 function Page({ cspOn }: { cspOn: boolean }) {
+    const [loggedIn, setLoggedIn] = useState(STARTS_LOGGED_IN);
+    const [renders, setRenders] = useState(0);
     const write = (line: string) => {
         const log = document.getElementById("log");
         if (log !== null) log.textContent = line;
@@ -70,12 +75,23 @@ function Page({ cspOn }: { cspOn: boolean }) {
                 <button type="button" onClick={() => control("reset", write)}>
                     Reset mock state
                 </button>
+                <button type="button" id="login" onClick={() => setLoggedIn((value) => !value)}>
+                    {loggedIn ? "Log out" : "Log in as Ada"}
+                </button>
+                <button type="button" id="rerender" onClick={() => setRenders((count) => count + 1)}>
+                    Re-render ({renders})
+                </button>
             </div>
             <p className="log" id="log">
                 These drive the mock API the way an operator or WhatsApp would. Send a first message before using them.
             </p>
 
-            <JelyChatWidget widgetKey={WIDGET_KEY} apiBaseUrl={MOCK_API} />
+            {/* A new object literal on every render, on purpose: the widget compares by value. */}
+            <JelyChatWidget
+                widgetKey={WIDGET_KEY}
+                apiBaseUrl={MOCK_API}
+                identity={loggedIn ? { name: " Ada Lovelace ", email: "ada@example.com", workspace: "" } : undefined}
+            />
         </div>
     );
 }

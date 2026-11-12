@@ -3,7 +3,7 @@
  * session token, the last message the visitor has seen, and whether the panel was left
  * minimised.
  *
- * `localStorage["jely.widget.<widgetKey>"] = { sessionToken, lastSeenMessageId, minimized }`
+ * `localStorage["jely.widget.<widgetKey>"] = { sessionToken, lastSeenMessageId, minimized, sessionUpdatedAt, identitySent }`
  *
  * EVERY access is wrapped in try/catch, including the `window.localStorage` property
  * lookup itself — Safari in private mode and any browser with site data blocked throw a
@@ -35,16 +35,25 @@ export interface WidgetStoredState {
      * When the CONVERSATION last moved, in epoch milliseconds — a message sent, a message
      * received, or the session being created. Deliberately not touched by opening,
      * minimising or merely loading the page: a TTL that a refresh renews is not a TTL, and
-     * "it keeps my same chat every time I refresh" is the thing this exists to stop.
+     * "it keeps my same chat every time I refresh" is the thing this exists to stop. A
+     * successful identify counts as the conversation moving.
      */
     sessionUpdatedAt?: number;
+    /**
+     * Fingerprint (`identityFingerprint`) of the visitor identity this SESSION's
+     * conversation already has, so a reload does not send it again. A hash rather than the
+     * identity itself, so the visitor's name and email are not stored twice. Goes with the
+     * session.
+     */
+    identitySent?: string;
 }
 
 /**
- * How long a stored conversation survives without either side saying anything. Five
- * minutes (user, 2026-09-08).
+ * How long a stored conversation survives without either side saying anything. Thirty
+ * minutes (user, 2026-11-12; five before that) — long enough to survive a visitor logging
+ * in on a site whose login and signup pages carry the widget.
  */
-export const WIDGET_SESSION_TTL_MS = 5 * 60 * 1000;
+export const WIDGET_SESSION_TTL_MS = 30 * 60 * 1000;
 
 const STORAGE_KEY_PREFIX = "jely.widget.";
 
@@ -102,6 +111,9 @@ export function readWidgetStorage(widgetKey: string): WidgetStoredState {
     if (typeof candidate.sessionUpdatedAt === "number" && Number.isFinite(candidate.sessionUpdatedAt)) {
         state.sessionUpdatedAt = candidate.sessionUpdatedAt;
     }
+    if (typeof candidate.identitySent === "string" && candidate.identitySent !== "") {
+        state.identitySent = candidate.identitySent;
+    }
     return state;
 }
 
@@ -135,7 +147,7 @@ export function expireStaleSession(widgetKey: string, now: number, ttlMs = WIDGE
     const state = readWidgetStorage(widgetKey);
     if (!isStoredSessionExpired(state, now, ttlMs)) return state;
 
-    removeWidgetStorageFields(widgetKey, ["sessionToken", "lastSeenMessageId", "sessionUpdatedAt"]);
+    removeWidgetStorageFields(widgetKey, ["sessionToken", "lastSeenMessageId", "sessionUpdatedAt", "identitySent"]);
     const kept: WidgetStoredState = {};
     if (state.minimized !== undefined) kept.minimized = state.minimized;
     return kept;
@@ -157,6 +169,7 @@ export function writeWidgetStorage(widgetKey: string, patch: WidgetStoredState):
     if (patch.lastSeenMessageId !== undefined) next.lastSeenMessageId = patch.lastSeenMessageId;
     if (patch.minimized !== undefined) next.minimized = patch.minimized;
     if (patch.sessionUpdatedAt !== undefined) next.sessionUpdatedAt = patch.sessionUpdatedAt;
+    if (patch.identitySent !== undefined) next.identitySent = patch.identitySent;
 
     try {
         storage.setItem(widgetStorageKey(widgetKey), JSON.stringify(next));

@@ -18,6 +18,9 @@
 
 export { JelyChatWidget, type JelyChatWidgetProps } from "./JelyChatWidget";
 
+/** The `identity` prop's shape: who the visitor is on your site. */
+export type { JelyChatIdentity } from "./core/identity";
+
 /** The neutral placeholder persona (F6), used until `GET /config` answers. */
 export { WIDGET_APPEARANCE_DEFAULTS } from "./appearance";
 

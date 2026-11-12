@@ -4,7 +4,10 @@
  *
  *   - every 3s  while the panel is open,
  *   - every 15s while it is minimised,
- *   - not at all while the tab is hidden.
+ *   - every 30s while the tab is hidden, for as long as it stays hidden (browsers may
+ *     throttle a background tab's timers further). Sites play their own sound on a new
+ *     reply, so a background tab has to keep hearing about them; coming back into view
+ *     polls at once.
  *
  * Ticks never overlap: the next one is scheduled only after the previous has settled, so
  * a slow network stretches the interval rather than stacking requests. Every tick is
@@ -29,6 +32,9 @@ export const POLL_INTERVAL_OPEN_MS = 3_000;
 /** Poll every 15 seconds while the panel is minimised (the unread badge still updates). */
 export const POLL_INTERVAL_MINIMIZED_MS = 15_000;
 
+/** Poll every 30 seconds while the tab is hidden, open or minimised alike. */
+export const POLL_INTERVAL_HIDDEN_MS = 30_000;
+
 export interface PollIntervalInput {
     /** The panel is minimised to the launcher. */
     minimized: boolean;
@@ -38,10 +44,10 @@ export interface PollIntervalInput {
 
 /**
  * The whole scheduling policy, as one pure function so it can be checked on its own.
- * Returns `null` for "do not poll at all".
+ * Whether to poll at all is `PollerSchedule.enabled`'s question, not this one's.
  */
-export function selectPollIntervalMs(input: PollIntervalInput): number | null {
-    if (input.hidden) return null;
+export function selectPollIntervalMs(input: PollIntervalInput): number {
+    if (input.hidden) return POLL_INTERVAL_HIDDEN_MS;
     return input.minimized ? POLL_INTERVAL_MINIMIZED_MS : POLL_INTERVAL_OPEN_MS;
 }
 
@@ -54,8 +60,7 @@ export function isDocumentHidden(): boolean {
 export interface PollerSchedule {
     /**
      * Whether polling should run at all — false before a conversation exists. Independent
-     * of visibility: `enabled: false` means there is nothing to poll for, `hidden` means
-     * there is, but not now.
+     * of visibility, which only stretches the interval.
      */
     enabled: boolean;
     /** Selects the 15s interval instead of the 3s one. */
@@ -108,7 +113,7 @@ export function createPoller(onTick: (signal: AbortSignal) => Promise<void>): Po
  * return early and never schedule again — polling would stop silently.
  *
  * Outside a browser (no `document`) it still polls; there is just no visibility signal to
- * pause on.
+ * slow down on.
  */
 function startSchedule(
     minimized: boolean,
@@ -129,13 +134,11 @@ function startSchedule(
     const schedule = () => {
         clearTimer();
         const intervalMs = selectPollIntervalMs({ minimized, hidden: isDocumentHidden() });
-        if (intervalMs === null) return; // Paused; `onVisibilityChange` restarts us.
         timer = setTimeout(() => void run(), intervalMs);
     };
 
     const run = async () => {
         if (cancelled || running) return;
-        if (isDocumentHidden()) return; // Became hidden while the timer was pending.
 
         running = true;
         const controller = new AbortController();
@@ -154,7 +157,9 @@ function startSchedule(
     const onVisibilityChange = () => {
         if (cancelled) return;
         if (isDocumentHidden()) {
-            clearTimer();
+            // Stretch the pending wait to the hidden interval (a tick in flight reschedules
+            // itself when it settles).
+            if (!running) schedule();
             return;
         }
         // Back in view: catch up immediately rather than waiting out an interval.

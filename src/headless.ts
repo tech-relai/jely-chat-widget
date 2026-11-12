@@ -5,7 +5,8 @@
  *   import { createJelyChat } from "@jely/chat-widget/headless";
  *
  * The controller owns everything the shipped widget does — config, session restore and its
- * 5-minute TTL, polling, unread counts, the WhatsApp handoff, linked and closed states —
+ * 30-minute TTL, polling, unread counts, the visitor identity, the WhatsApp handoff, linked
+ * and closed states —
  * and a UI only renders `getState()` and calls its methods. React users can import the
  * same names, plus `useJelyChat`, from `@jely/chat-widget/react`.
  *
@@ -17,6 +18,7 @@
 
 export { createJelyChat } from "./core/createJelyChat";
 export type { JelyChat, JelyChatOptions, JelyChatState } from "./core/types";
+export type { JelyChatIdentity } from "./core/identity";
 export type { WidgetError, WidgetErrorCode } from "./core/errors";
 export type { WidgetPhase } from "./state";
 

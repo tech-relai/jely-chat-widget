@@ -108,6 +108,7 @@ import { JelyChatWidget, type JelyChatWidgetProps } from "@jely/chat-widget";
 | `position`    | `"bottom-right" \| "bottom-left"` | `"bottom-right"`       | Which corner the launcher sits in.                                                                                                              |
 | `appearance`  | `Partial<WidgetAppearance>`       | the console's settings | Locally override individual appearance fields.                                                                                                  |
 | `defaultOpen` | `boolean`                         | `false`                | Open the panel instead of the launcher on first load. Ignored once the visitor has minimised the panel themselves — their choice is remembered. |
+| `identity`    | `JelyChatIdentity`                | —                      | Who the visitor is on your site: `{ name?, email?, workspace? }`. Display-only and not verified. Can change at any time. See below.             |
 
 Changing `widgetKey` remounts the widget with a clean session. Changing `position` moves
 the launcher without discarding an open panel or a half-typed message.
@@ -164,11 +165,36 @@ not clear a CTA configured in the console. Blank strings are treated as absent.
 The package's neutral defaults are exported as `WIDGET_APPEARANCE_DEFAULTS` if you want to
 render them somewhere yourself.
 
+### `identity`
+
+For a visitor who is logged in to your site, pass what you know and their conversation is
+labelled with it on Jely's Support page and in Slack instead of its six-character reference.
+
+```tsx
+<JelyChatWidget
+    widgetKey="jely_wk_…"
+    identity={user ? { name: user.name, email: user.email, workspace: user.teamName } : undefined}
+/>
+```
+
+- **Every field is optional.** Fields are trimmed and blank ones are ignored; a field you
+  leave out is cleared on the conversation. A field the API would refuse — longer than 120
+  characters (254 for `email`), or an `email` that is not shaped like one — is left out.
+- **It can change at any time.** When a visitor logs in mid-chat, the conversation they
+  already started is updated rather than a new one begun. It is sent once per distinct
+  value, so passing a new object literal on every render costs nothing.
+- **It is not verified.** Anyone can put anything in a browser; Jely shows it to your team
+  marked as provided by your site, and never treats it as proof of who someone is.
+- **It stays on the conversation after logout.** A custom UI can call `startNewChat()` at
+  logout so the next person on that browser starts fresh (see **Build your own UI**).
+- **Best-effort.** Sending it never shows the visitor an error and never interrupts the chat;
+  a failure is retried on the next change or page load.
+
 ### Everything else the package exports
 
 `JelyApiError` (the error class the widget's own network layer throws — exported so it can
 be recognised by `code` in your error reporting rather than by message),
-`DEFAULT_API_BASE_URL`, `WIDGET_MESSAGE_MAX_CHARS`, and the response/appearance types
+`DEFAULT_API_BASE_URL`, `WIDGET_MESSAGE_MAX_CHARS`, `JelyChatIdentity`, and the response/appearance types
 (`WidgetAppearance`, `WidgetConversationView`, `WidgetMessageView`, `WidgetTheme`,
 `WidgetConversationStatus`, `WidgetMessageDirection`, `WidgetApiErrorCode`, `ApiErrorBody`).
 
@@ -242,7 +268,8 @@ resource of any kind. It is the code you already installed from npm.
   explanatory state with a **"Start a new chat"** button. The transcript stays readable;
   only writing is refused. The button clears the local session and returns to the greeting.
 - **The session lives in `localStorage`**, under `jely.widget.<widgetKey>` — the session
-  token, the last message the visitor saw, and whether the panel was minimised. In a
+  token, the last message the visitor saw, whether the panel was minimised, and a short
+  fingerprint (not the values) of the `identity` already sent. In a
   browser with site data blocked (Safari private mode, a sandboxed iframe, a strict privacy
   setting) every read and write fails silently: the widget still works, but a page refresh
   starts a **new** conversation instead of resuming the old one. Nothing errors, and the
@@ -252,9 +279,13 @@ resource of any kind. It is the code you already installed from npm.
   at all rather than an error box on your page. Check the console's Widget section, and your
   browser's network tab, if it does not appear.
 - **Delivery is by polling**, not a socket: every 3 seconds while the panel is open, every
-  15 seconds while minimised, paused entirely while the tab is hidden, and stopped once the
-  conversation is linked or closed.
+  15 seconds while minimised, every 30 seconds while the tab is hidden (browsers may slow a
+  background tab further; coming back polls at once), and stopped once the conversation is
+  linked or closed.
 - **The launcher shows an unread count** when the panel is minimised and an agent replies.
+  A reply that arrives while the tab is hidden stays unread until the visitor comes back.
+- **A conversation is kept for 30 minutes** after the last message in either direction; the
+  next page load after that starts a new one.
 - **The widget mounts itself on `document.body`**, in a shadow root, at a very high
   `z-index` — high enough to clear any real stacking context, low enough that a cookie
   banner can still cover it. It is not rendered where you put the element, so your layout's
@@ -319,7 +350,9 @@ export function SupportChat() {
 
 `useJelyChat(options)` returns `{ chat, state }`. The controller is created in an effect —
 never during a server render — and destroyed on unmount. It is recreated only when
-`widgetKey` or `apiBaseUrl` changes; `defaultOpen` only seeds a new one.
+`widgetKey` or `apiBaseUrl` changes; `defaultOpen` only seeds a new one. `identity` is
+passed on to the live controller whenever its value changes (compared field by field, so an
+inline object is fine).
 
 ### Any other framework
 
@@ -339,9 +372,20 @@ Creating the controller starts it: it reads `localStorage`, fetches the config a
 recent session is stored, restores it. Create it in the browser only. Importing the module
 on a server is safe; nothing runs at import time.
 
-Options, for both: `widgetKey` (required), `apiBaseUrl` (as the widget prop), and
+Options, for both: `widgetKey` (required), `apiBaseUrl` (as the widget prop),
 `defaultOpen` (open on first visit; the visitor's own open/minimised choice wins after
-that).
+that), and `identity` (as the widget prop).
+
+**Logged-in visitors.** Pass `identity` up front, or call `identify()` once you know who the
+visitor is — after login, say. It follows the same rules as the widget's `identity` prop.
+
+```js
+const chat = createJelyChat({ widgetKey: "jely_wk_…" });
+// …after your user logs in:
+chat.identify({ name: user.name, email: user.email, workspace: user.teamName });
+// …and at logout, if the next person on this browser should start fresh:
+chat.startNewChat();
+```
 
 `getState()` returns the same object until something changes, so it works directly with
 `useSyncExternalStore`, Svelte stores, signals and the like. Listeners take no arguments.
@@ -387,11 +431,13 @@ None of them throw or reject; a failure lands in `state.error`.
 | `startNewChat()`     | `chat`, `handoff`, `linked`, `closed`                      | Forgets the stored session and returns to `greeting`. The old conversation stays open for your team.                   |
 | `open()` / `close()` | any                                                        | Shows or minimises your panel; remembered across page loads. `close()` during `handoff` returns to `chat`.             |
 | `markSeen()`         | panel open                                                 | Call when the visitor has seen the newest message (e.g. scrolled to the bottom). Clears `unreadCount`.                 |
+| `identify(identity)` | any                                                        | Sets who the visitor is (see `identity`). Sent now if there is a conversation, else with the first message.            |
 | `clearError()`       | any                                                        | Clears `error`.                                                                                                        |
 | `destroy()`          | once                                                       | Stops polling and drops listeners. `useJelyChat` does it for you on unmount.                                           |
 
-New messages are already marked seen while the panel is open; `markSeen()` is for a UI that
-lets the visitor scroll away from the bottom.
+New messages are already marked seen while the panel is open and the tab is visible;
+`markSeen()` is for a UI that lets the visitor scroll away from the bottom, or that wants to
+mark them seen when the tab comes back into view.
 
 **Your composer must** trim the text, refuse an empty message, and cap it at
 `WIDGET_MESSAGE_MAX_CHARS` (2000) — the controller sends what you give it, and the server
@@ -462,9 +508,10 @@ None of this is configurable, and it is the same as the widget's:
 - **One chat per widget key per page.** The session lives in `localStorage` under
   `jely.widget.<widgetKey>`, so two instances on one key — including a custom UI next to
   `<JelyChatWidget>` — would share and fight over it.
-- **Sessions expire after 5 minutes** without a message in either direction; the next page
-  load starts fresh. Opening or minimising does not count.
-- **Polling**: every 3 seconds while `open`, every 15 while minimised, paused while the tab
+- **Sessions expire after 30 minutes** without a message in either direction (a sent
+  identity counts too); the next page load starts fresh. Opening or minimising does not
+  count.
+- **Polling**: every 3 seconds while `open`, every 15 while minimised, every 30 while the tab
   is hidden, not before the config has loaded, and stopped once the conversation is linked
   or closed.
 - **Starting a conversation sends the page URL and referrer**, as the widget does.
@@ -478,7 +525,7 @@ widget and nothing else. `examples/next-app/README.md` says how to run it.
 
 ## Local development against a mock API
 
-`smoke/` contains a dependency-free mock of the six widget endpoints and a page that mounts
+`smoke/` contains a dependency-free mock of the seven widget endpoints and a page that mounts
 the built widget against it, so the whole flow — greeting, chat, agent reply, WhatsApp
 handoff, linked and closed states — can be walked without a backend. See `smoke/README.md`.
 

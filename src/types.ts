@@ -7,9 +7,9 @@
  * Plus the widget-relevant error codes from `contract/shared/common.ts`
  *          (`ApiErrorCodeSchema`, `ApiErrorSchema`).
  *
- * Mirrored on: 2026-09-06
- * Source sha256: ee6d118b123c8084aa2a98f2577563ae99c83779e8bb83f9f12bf096c965a284
- *                (of `widgetPublic.contract.ts`, 385 lines, at mirror time)
+ * Mirrored on: 2026-11-12
+ * Source sha256: d8ab7b6933f42c03a8f54ea7979003f44fca8d4f6909491bf4cdd9b2a0fb7936
+ *                (of `widgetPublic.contract.ts`, 436 lines, at mirror time)
  *
  * WHY THIS FILE EXISTS (decision F7). This package must not depend on either Jely
  * repo: it is published to npm and installed on customer websites, and the contract
@@ -53,13 +53,13 @@ export const WIDGET_MAX_ALLOWED_ORIGINS = 20;
  * process-local. Mirrored so the widget can explain a 429 in the visitor's terms and
  * so `core/polling.ts`'s intervals can be checked against them: the 3s open poll is exactly
  * 20 requests/minute, which is why `messagesPerSessionPerMinute` is applied to the
- * message POST only and never to the poll — a widget left open would otherwise rate-limit
+ * message and identity POSTs only and never to the poll — a widget left open would otherwise rate-limit
  * itself simply by staying open.
  */
 export const WIDGET_RATE_LIMITS = {
     /** New conversations per client IP per hour (`POST /conversations`). */
     newConversationsPerIpPerHour: 10,
-    /** Messages per widget session per minute (`POST /conversation/messages`). */
+    /** Messages per widget session per minute (`POST /conversation/messages`), shared with `POST /conversation/identity`. */
     messagesPerSessionPerMinute: 20,
     /** Requests per widget key per minute, across every widget route. */
     requestsPerKeyPerMinute: 600,
@@ -141,7 +141,8 @@ export type WidgetConversationStatus = "open" | "closed";
 /**
  * The visitor's view of their own conversation. `linked` becomes true once the visitor
  * has continued on WhatsApp — the widget then locks into its "WhatsApp connected" state
- * and every write route answers 409 `CONVERSATION_LOCKED`. Deliberately minimal: no
+ * and every write route answers 409 `CONVERSATION_LOCKED` (except
+ * `POST /conversation/identity`, which is still accepted). Deliberately minimal: no
  * contact, no operator, no org internals.
  */
 export interface WidgetConversationView {
@@ -168,6 +169,24 @@ export interface WidgetMessageView {
     createdAt: string;
 }
 
+/**
+ * Who the visitor is, as told by the host site (e.g. its logged-in user). Display-only and
+ * UNVERIFIED. The contract trims every field and requires at least one; `name` 1..120,
+ * `email` ≤254 and a valid email, `workspace` 1..120 (`WIDGET_IDENTITY_LIMITS`).
+ */
+export interface WidgetVisitorIdentity {
+    name?: string;
+    email?: string;
+    workspace?: string;
+}
+
+/** The contract's per-field bounds for `WidgetVisitorIdentity`, after trimming. */
+export const WIDGET_IDENTITY_LIMITS = {
+    nameMaxChars: 120,
+    emailMaxChars: 254,
+    workspaceMaxChars: 120,
+} as const;
+
 // ---------------------------------------------------------------------------
 // GET /api/widget/v1/:widgetKey/config — bootstrap the widget
 // ---------------------------------------------------------------------------
@@ -193,6 +212,8 @@ export interface StartWidgetConversationRequest {
     pageUrl?: string;
     /** `document.referrer`, when the browser provided a non-empty one. Must be a URL, max 2000 chars. */
     referrer?: string;
+    /** The host site's visitor identity, when already known before the first message. */
+    identity?: WidgetVisitorIdentity;
 }
 
 export interface StartWidgetConversationResponse {
@@ -262,6 +283,22 @@ export interface RequestWidgetHandoffResponse {
     prefilledText: string;
     /** The developer sender in display form. */
     phoneDisplay: string;
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/widget/v1/:widgetKey/conversation/identity — host site identifies the visitor
+// ---------------------------------------------------------------------------
+
+/**
+ * Last write wins: the stored identity is replaced whole. Accepted on a linked or closed
+ * conversation (never 409). Counts against `messagesPerSessionPerMinute`.
+ */
+export interface IdentifyWidgetConversationRequest {
+    identity: WidgetVisitorIdentity;
+}
+
+export interface IdentifyWidgetConversationResponse {
+    conversation: WidgetConversationView;
 }
 
 // ---------------------------------------------------------------------------

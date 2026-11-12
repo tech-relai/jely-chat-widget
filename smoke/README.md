@@ -40,6 +40,13 @@ install, not the source.
    locks and the panel explains why.
 7. **"Close conversation"** (page button) — the closed state, with **Start a new chat**.
 8. **Start a new chat** — clears the stored session and returns to the greeting.
+9. **Identity** — "Log in as Ada" mid-chat makes the mock log one `identify:` line; "Re-render"
+   (a new `identity` object literal each time) and a page refresh log nothing more. Open
+   `/?user=1` and send a first message: the mock logs `start identity: {"name":"Ada Lovelace",…}`
+   and no separate identify. The blank `workspace` is never sent.
+10. **Background tab** — with `MOCK_LOG_POLLS=1 npm run smoke:api`, polls arrive every ~30 s
+    while the tab is hidden; an agent reply in that time leaves the launcher's unread count
+    up until you come back.
 
 The four buttons on the page hit `/mock/reply`, `/mock/link`, `/mock/close` and
 `/mock/reset`. Those routes exist only in the mock; they stand in for an operator in the

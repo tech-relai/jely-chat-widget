@@ -20,10 +20,12 @@
  *
  * A new controller is created only when `widgetKey` or `apiBaseUrl` changes. `defaultOpen`
  * only seeds a new controller: after that the visitor's own open/minimise choice is the
- * state, and it is remembered across page loads.
+ * state, and it is remembered across page loads. `identity` is pushed into the live
+ * controller whenever one of its three fields changes — compared by value, so an inline
+ * object literal on every render sends nothing new.
  */
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { createJelyChat } from "../core/createJelyChat";
 import type { JelyChat, JelyChatOptions, JelyChatState } from "../core/types";
@@ -32,11 +34,14 @@ const noSubscription = () => () => {};
 const noState = () => null;
 
 export function useJelyChat(options: JelyChatOptions): { chat: JelyChat | null; state: JelyChatState | null } {
-    const { widgetKey, apiBaseUrl, defaultOpen } = options;
+    const { widgetKey, apiBaseUrl, defaultOpen, identity } = options;
     const [chat, setChat] = useState<JelyChat | null>(null);
+    // The latest identity, for a controller created after it was set.
+    const identityRef = useRef(identity);
+    identityRef.current = identity;
 
     useEffect(() => {
-        const instance = createJelyChat({ widgetKey, apiBaseUrl, defaultOpen });
+        const instance = createJelyChat({ widgetKey, apiBaseUrl, defaultOpen, identity: identityRef.current });
         setChat(instance);
         return () => {
             instance.destroy();
@@ -44,6 +49,15 @@ export function useJelyChat(options: JelyChatOptions): { chat: JelyChat | null; 
         };
         // `defaultOpen` only seeds a new controller; changing it must not restart the chat.
     }, [widgetKey, apiBaseUrl]);
+
+    // By value: the three strings, not the object, so a new literal per render is no change.
+    // The controller itself skips an identity the conversation already has.
+    const name = identity?.name;
+    const email = identity?.email;
+    const workspace = identity?.workspace;
+    useEffect(() => {
+        chat?.identify({ name, email, workspace });
+    }, [chat, name, email, workspace]);
 
     const state = useSyncExternalStore(chat?.subscribe ?? noSubscription, chat?.getState ?? noState, noState);
     return { chat, state };

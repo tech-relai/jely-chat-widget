@@ -1,5 +1,5 @@
 /**
- * A local stand-in for the six Jely widget endpoints, so the whole widget flow can be
+ * A local stand-in for the seven Jely widget endpoints, so the whole widget flow can be
  * walked on a laptop with no backend, no org, and no real widget key.
  *
  *   node smoke/mock-api.mjs          # http://localhost:8787
@@ -12,7 +12,8 @@
  * the one place it is deliberately more permissive than production so the smoke page works
  * from whatever port Vite picked.
  *
- * Zero dependencies, `node:http` only. Node >= 18.
+ * Zero dependencies, `node:http` only. Node >= 18. `MOCK_LOG_POLLS=1` also logs every poll
+ * with a timestamp, which is how the hidden-tab interval is checked.
  *
  * It also exposes a few `/mock/*` control routes that DO NOT EXIST on the real server.
  * They are how the smoke page drives the states a real conversation reaches only through
@@ -27,6 +28,20 @@ const PORT = Number(process.env.PORT ?? 8787);
 const WIDGET_KEY_PATTERN = /^jely_wk_[0-9a-f]{32}$/;
 
 const SESSION_HEADER = "x-jely-session";
+const LOG_POLLS = process.env.MOCK_LOG_POLLS === "1";
+
+/**
+ * The contract's identity rules, loosely: an object with at least one non-blank string of
+ * `name`, `email`, `workspace`. Anything else is the 400 the real server would answer.
+ */
+function readIdentity(value) {
+    if (typeof value !== "object" || value === null) return null;
+    const identity = {};
+    for (const key of ["name", "email", "workspace"]) {
+        if (typeof value[key] === "string" && value[key].trim() !== "") identity[key] = value[key].trim();
+    }
+    return Object.keys(identity).length > 0 ? identity : null;
+}
 const MESSAGE_MAX_CHARS = 2000;
 
 /** The org's widget config, as `GET /config` would answer it. */
@@ -159,10 +174,19 @@ const server = createServer(async (req, res) => {
             sessionToken: randomHex(48),
             messages: [],
             pageUrl: typeof body?.pageUrl === "string" ? body.pageUrl : undefined,
+            identity: null,
         };
+        if (body?.identity !== undefined) {
+            conversation.identity = readIdentity(body.identity);
+            if (conversation.identity === null) {
+                conversation = null;
+                return send(res, 400, { error: "identity needs a field", code: "VALIDATION_ERROR" });
+            }
+        }
         const message = addMessage("visitor", text);
         scheduleAgentReply(conversation);
         log(`conversation ${conversation.ref} started from ${conversation.pageUrl ?? "an unknown page"}`);
+        log(`start identity: ${JSON.stringify(conversation.identity)}`);
         return send(res, 201, { sessionToken: conversation.sessionToken, conversation: conversationView(), message });
     }
 
@@ -177,6 +201,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === "GET" && route === "/conversation/messages") {
+        if (LOG_POLLS) log(`poll at ${Date.now()}`);
         const after = url.searchParams.get("after");
         const index = after === null ? -1 : conversation.messages.findIndex((m) => m.id === after);
         const messages = conversation.messages.slice(index + 1);
@@ -194,6 +219,16 @@ const server = createServer(async (req, res) => {
         const message = addMessage("visitor", text);
         scheduleAgentReply(conversation);
         return send(res, 201, { message });
+    }
+
+    // Accepted on a linked or closed conversation too, as in production.
+    if (method === "POST" && route === "/conversation/identity") {
+        const body = await readJson(req);
+        const identity = readIdentity(body?.identity);
+        if (identity === null) return send(res, 400, { error: "identity needs a field", code: "VALIDATION_ERROR" });
+        conversation.identity = identity;
+        log(`identify: ${JSON.stringify(identity)}`);
+        return send(res, 200, { conversation: conversationView() });
     }
 
     if (method === "POST" && route === "/conversation/handoff") {
