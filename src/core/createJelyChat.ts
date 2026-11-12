@@ -23,14 +23,8 @@
  * widget KEY (600/minute shared by every visitor on the customer's site), so idle terminal
  * tabs are the one thing worth not spending it on.
  *
- * THE VISITOR IDENTITY IS BEST-EFFORT (`identify()`, `options.identity`). Without a
- * conversation it rides along with the first message; with one it goes to
- * `POST /conversation/identity`, once per distinct identity — the fingerprint of what this
- * session already sent is kept in storage, so a reload or a re-render sends nothing. A
- * failure is never shown to the visitor and is not retried on a timer (so a 429 cannot
- * loop): the next change, or the next page load, tries again. An identity the server
- * refuses as invalid is remembered for this page and not sent again, and it never costs the
- * visitor their first message — the start is retried once without it.
+ * THE VISITOR IDENTITY IS BEST-EFFORT (`identify()`, `options.identity`); `identitySync.ts`
+ * owns when and how it is sent.
  *
  * WRITES OUTLIVE `destroy()`. A first message whose response lands after the host
  * unmounted still stores its session token, exactly as the React-only widget did, so the
@@ -38,20 +32,13 @@
  */
 
 import { JelyApiError, createWidgetApiClient } from "../api";
-import {
-    clearWidgetStorage,
-    expireStaleSession,
-    readWidgetStorage,
-    removeWidgetStorageFields,
-    writeWidgetStorage,
-} from "../storage";
+import { clearWidgetStorage, expireStaleSession, removeWidgetStorageFields, writeWidgetStorage } from "../storage";
 import { initialWidgetState, pollCursor, widgetReducer, type WidgetEvent } from "../state";
-import type { StartWidgetConversationResponse, WidgetPublicConfigResponse, WidgetVisitorIdentity } from "../types";
+import type { WidgetPublicConfigResponse } from "../types";
 import { toWidgetError } from "./errors";
-import { identityFingerprint, normalizeIdentity } from "./identity";
+import { createIdentitySync } from "./identitySync";
 import { createPoller, isDocumentHidden } from "./polling";
 import type { JelyChat, JelyChatOptions, JelyChatState } from "./types";
-import { visitorContext } from "./visitor";
 
 export function createJelyChat(options: JelyChatOptions): JelyChat {
     const { widgetKey } = options;
@@ -62,13 +49,6 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     let sessionToken: string | null = stored.sessionToken ?? null;
     let config: WidgetPublicConfigResponse | null = null;
     let unavailable = false;
-
-    // The host's visitor identity, normalised; null when there is nothing to send.
-    let identity: WidgetVisitorIdentity | null = normalizeIdentity(options.identity);
-    // An identity the server refused as invalid: not sent again from this page.
-    let rejectedFingerprint: string | null = null;
-    let identifying = false;
-    let identifyAgain = false;
 
     // A stored preference beats `defaultOpen`: a visitor who minimised the panel meant it,
     // and E5 says a refresh continues where they were. `initialWidgetState` starts in
@@ -82,6 +62,17 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     let destroyed = false;
     const lifetime = new AbortController();
     const poller = createPoller(tick);
+    const identitySync = createIdentitySync(
+        {
+            client,
+            widgetKey,
+            signal: lifetime.signal,
+            getSessionToken: () => sessionToken,
+            isDestroyed: () => destroyed,
+            onSessionGone: () => discardSession(),
+        },
+        options.identity,
+    );
 
     // --- State --------------------------------------------------------------
 
@@ -157,7 +148,7 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
                     messages: response.messages,
                     visible: !isDocumentHidden(),
                 });
-                void flushIdentity();
+                void identitySync.flush();
             })
             .catch((error: unknown) => {
                 if (destroyed || lifetime.signal.aborted) return;
@@ -196,7 +187,7 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     async function start(text: string) {
         dispatch({ type: "sendStarted" });
         try {
-            const { response, identitySent } = await startConversation(text);
+            const { response, identitySent } = await identitySync.startConversation(text);
             writeWidgetStorage(widgetKey, {
                 sessionToken: response.sessionToken,
                 sessionUpdatedAt: Date.now(),
@@ -205,75 +196,9 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
             sessionToken = response.sessionToken;
             dispatch({ type: "conversationStarted", conversation: response.conversation, message: response.message });
             // The identity may have changed (or arrived) while the first message was in flight.
-            void flushIdentity();
+            void identitySync.flush();
         } catch (error) {
             dispatch({ type: "sendFailed", error: toWidgetError(error) });
-        }
-    }
-
-    /**
-     * `POST /conversations`, carrying the identity when there is one. An identity the server
-     * refuses must not cost the visitor their first message, so a VALIDATION_ERROR with an
-     * identity attached is retried once without it.
-     */
-    async function startConversation(
-        text: string,
-    ): Promise<{ response: StartWidgetConversationResponse; identitySent: string | null }> {
-        const request = { body: text, ...visitorContext() };
-        const attached = identity !== null && identityFingerprint(identity) !== rejectedFingerprint ? identity : null;
-        if (attached === null) return { response: await client.startConversation(request), identitySent: null };
-
-        const fingerprint = identityFingerprint(attached);
-        try {
-            const response = await client.startConversation({ ...request, identity: attached });
-            return { response, identitySent: fingerprint };
-        } catch (error) {
-            if (!(error instanceof JelyApiError) || error.code !== "VALIDATION_ERROR") throw error;
-            rejectedFingerprint = fingerprint;
-            return { response: await client.startConversation(request), identitySent: null };
-        }
-    }
-
-    /**
-     * Send the current identity to the current conversation, unless this session already
-     * has it. Never throws and never dispatches an error: see the header.
-     */
-    async function flushIdentity(): Promise<void> {
-        const token = sessionToken;
-        const current = identity;
-        if (destroyed || token === null || current === null) return;
-        const fingerprint = identityFingerprint(current);
-        if (fingerprint === rejectedFingerprint) return;
-        if (fingerprint === readWidgetStorage(widgetKey).identitySent) return;
-        if (identifying) {
-            identifyAgain = true;
-            return;
-        }
-
-        identifying = true;
-        try {
-            await client.identify({ identity: current }, { sessionToken: token, signal: lifetime.signal });
-            // Only for the session it was sent to: a new chat may have started meanwhile.
-            if (sessionToken === token) {
-                writeWidgetStorage(widgetKey, { identitySent: fingerprint, sessionUpdatedAt: Date.now() });
-            }
-        } catch (error) {
-            if (error instanceof JelyApiError && error.isSessionGone) {
-                if (sessionToken === token) discardSession();
-            } else if (error instanceof JelyApiError && error.code === "VALIDATION_ERROR") {
-                rejectedFingerprint = fingerprint;
-            }
-            // Anything else (offline, 429, 5xx): left for the next change or page load.
-        } finally {
-            identifying = false;
-            // A different identity arrived while this one was in flight; the same one is not
-            // retried here, which is what keeps a failing request from looping.
-            const latest = identity;
-            if (identifyAgain && latest !== null && identityFingerprint(latest) !== fingerprint) {
-                identifyAgain = false;
-                void flushIdentity();
-            }
-            identifyAgain = false;
         }
     }
 
@@ -345,10 +270,7 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
             dispatch({ type: "panelMinimized" });
         },
         markSeen: () => dispatch({ type: "messagesSeen" }),
-        identify(next) {
-            identity = normalizeIdentity(next);
-            void flushIdentity();
-        },
+        identify: (next) => identitySync.set(next),
         clearError: () => dispatch({ type: "errorCleared" }),
         destroy() {
             if (destroyed) return;
