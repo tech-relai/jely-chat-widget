@@ -1,35 +1,22 @@
 /**
- * The conversation, wired together: config, session, polling, the reducer, and which view
- * is on screen. `JelyChatWidget` owns the host element and the `routes` decision; this
- * owns everything that talks to the server.
+ * The shipped widget's screen: which view is up, and the keyboard rules around it.
+ * `JelyChatWidget` owns the host element and the `routes` decision; the conversation itself
+ * — config, session, polling, storage, the reducer — is the `createJelyChat` controller in
+ * `core/`, reached through `useJelyChat`. Nothing here talks to the server.
  *
- * IT RENDERS NOTHING UNTIL `GET /config` ANSWERS, and nothing ever if that call fails.
- * Both halves are deliberate. Painting the neutral defaults first and swapping to the
- * org's persona a moment later would flash a different name on a customer's page; and a
- * key that is unknown, disabled, or used from an origin the org has not allowed means the
- * INSTALL is wrong — `types.ts` states the consequence: render nothing rather than an
- * error on the customer's page. A visitor is never shown our plumbing.
+ * IT RENDERS NOTHING UNTIL `GET /config` ANSWERS, and nothing ever if that call fails —
+ * see `createJelyChat` for why both halves are deliberate. A visitor is never shown our
+ * plumbing.
  *
- * POLLING STOPS ONCE THE CONVERSATION IS LINKED OR CLOSED. The server keeps answering
- * reads on both (§12, P2), so this is a courtesy rather than a requirement: nothing new
- * can arrive in the widget — a linked conversation continues on WhatsApp — and the poll
- * budget is per widget KEY (600/minute shared by every visitor on the customer's site),
- * so idle terminal tabs are the one thing worth not spending it on.
- *
- * WHY THE STATE IS MIRRORED IN A REF: `usePolling` keeps `onTick` in a ref so its schedule
- * survives re-renders, which means the tick closure must not capture the state it needs.
- * `stateRef` is that state, read at tick time.
+ * ERRORS ARRIVE AS CODES. The controller carries no copy; `describeError` below is where a
+ * code becomes the sentence a visitor reads.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-
 import { accentCssVariables, resolveAppearance } from "./appearance";
-import { JelyApiError, createWidgetApiClient } from "./api";
 import { copy } from "./copy";
-import { clearWidgetStorage, expireStaleSession, removeWidgetStorageFields, writeWidgetStorage } from "./storage";
-import { initialWidgetState, pollCursor, widgetReducer } from "./state";
-import { WIDGET_MESSAGE_MAX_CHARS, type WidgetAppearance, type WidgetPublicConfigResponse } from "./types";
-import { usePolling } from "./usePolling";
+import type { WidgetError } from "./core/errors";
+import { WIDGET_MESSAGE_MAX_CHARS, type WidgetAppearance } from "./types";
+import { useJelyChat } from "./react/useJelyChat";
 import { ChatView } from "./views/ChatView";
 import { GreetingCard } from "./views/GreetingCard";
 import { HandoffModal } from "./views/HandoffModal";
@@ -48,239 +35,14 @@ export interface WidgetRootProps {
  * holding one org's session against another org's config.
  */
 export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverride, defaultOpen }: WidgetRootProps) {
-    const client = useMemo(() => createWidgetApiClient({ widgetKey, apiBaseUrl }), [widgetKey, apiBaseUrl]);
+    const { chat, state } = useJelyChat({ widgetKey, apiBaseUrl, defaultOpen });
 
-    // Read once, and let a stale conversation go before anything reads a token out of it
-    // — see `expireStaleSession` for why the pruning happens here and not in an effect.
-    const stored = useMemo(() => expireStaleSession(widgetKey, Date.now()), [widgetKey]);
-    const [config, setConfig] = useState<WidgetPublicConfigResponse | null>(null);
-    const [unavailable, setUnavailable] = useState(false);
-    const [sessionToken, setSessionToken] = useState<string | null>(stored.sessionToken ?? null);
+    if (chat === null || state === null || state.unavailable || state.config === null) return null;
 
-    // A stored preference beats `defaultOpen`: a visitor who minimised the panel meant it,
-    // and E5 says a refresh continues where they were.
-    const initialOpen = stored.minimized === undefined ? defaultOpen : !stored.minimized;
-    const [state, dispatch] = useReducer(widgetReducer, undefined, () =>
-        initialWidgetState({ open: initialOpen, lastSeenMessageId: stored.lastSeenMessageId ?? null }),
-    );
-
-    const stateRef = useRef(state);
-    stateRef.current = state;
-    const sessionTokenRef = useRef(sessionToken);
-    sessionTokenRef.current = sessionToken;
-
-    // `initialWidgetState` starts in `idle`; opening is what moves it to `greeting`.
-    useEffect(() => {
-        if (initialOpen) dispatch({ type: "panelOpened" });
-        // Mount only — later opens come from the launcher.
-    }, []);
-
-    // --- Bootstrap ----------------------------------------------------------
-
-    useEffect(() => {
-        const controller = new AbortController();
-        let active = true;
-        client
-            .getConfig({ signal: controller.signal })
-            .then((response) => {
-                if (active) setConfig(response);
-            })
-            .catch(() => {
-                if (!active || controller.signal.aborted) return;
-                setUnavailable(true);
-                /**
-                 * The one thing the widget cannot degrade around: without `GET /config` it
-                 * has no persona, no org name and no idea whether the handoff is on, so it
-                 * renders nothing. Silence there is the worst outcome -- the site owner sees
-                 * no widget and no reason -- so say once, plainly, what the two causes are.
-                 *
-                 * Both look identical from JavaScript on purpose: an origin that is not on
-                 * the allowlist is refused WITHOUT CORS headers, so the browser blocks the
-                 * response exactly as it blocks a CSP violation. Naming both is the most
-                 * precise thing that can honestly be said from here.
-                 */
-                // eslint-disable-next-line no-console
-                console.warn(
-                    "[jely] The chat widget could not reach " +
-                        client.apiBaseUrl +
-                        ". Two things cause this: this page's origin is not on the widget's " +
-                        "allowed-origins list in the Jely console, or this site's " +
-                        "Content-Security-Policy does not allow connect-src to that origin.",
-                );
-            });
-        return () => {
-            active = false;
-            controller.abort();
-        };
-    }, [client]);
-
-    // The stored session is resolved with the POLL endpoint rather than `GET /conversation`:
-    // it returns the conversation AND the transcript in one round trip, and the widget needs
-    // both to render anything.
-    useEffect(() => {
-        const token = sessionTokenRef.current;
-        if (token === null) return;
-        const controller = new AbortController();
-        let active = true;
-        client
-            .getMessages({ sessionToken: token, signal: controller.signal })
-            .then((response) => {
-                if (!active) return;
-                dispatch({ type: "sessionRestored", conversation: response.conversation, messages: response.messages });
-            })
-            .catch((error: unknown) => {
-                if (!active || controller.signal.aborted) return;
-                if (error instanceof JelyApiError && error.isSessionGone) discardSession();
-                // Any other failure (offline, a 5xx) leaves the session alone: the poll will
-                // pick it up, and throwing away a working conversation over one bad request
-                // would lose the visitor's transcript.
-            });
-        return () => {
-            active = false;
-            controller.abort();
-        };
-    }, [client]);
-
-    const discardSession = useCallback(() => {
-        removeWidgetStorageFields(widgetKey, ["sessionToken", "lastSeenMessageId"]);
-        setSessionToken(null);
-        dispatch({ type: "sessionDiscarded" });
-    }, [widgetKey]);
-
-    // --- Polling (E1) -------------------------------------------------------
-
-    const onTick = useCallback(
-        async (signal: AbortSignal) => {
-            const token = sessionTokenRef.current;
-            if (token === null) return;
-            try {
-                const response = await client.getMessages({
-                    sessionToken: token,
-                    after: pollCursor(stateRef.current),
-                    signal,
-                });
-                // `after: pollCursor(...)` above means a non-empty list is genuinely NEW —
-                // an operator reply keeps the conversation alive, a quiet poll does not.
-                if (response.messages.length > 0) writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
-                dispatch({ type: "polled", conversation: response.conversation, messages: response.messages });
-            } catch (error) {
-                if (error instanceof JelyApiError && error.isSessionGone) discardSession();
-                // Everything else is a tick that produced nothing; the next one follows.
-            }
-        },
-        [client, discardSession, widgetKey],
-    );
-
-    const terminal = state.phase === "linked" || state.phase === "closed";
-    const { pollNow } = usePolling({
-        enabled: sessionToken !== null && config !== null && !unavailable && !terminal,
-        minimized: !state.open,
-        onTick,
-    });
-
-    // --- Persistence --------------------------------------------------------
-
-    useEffect(() => {
-        if (state.lastSeenMessageId === null) return;
-        writeWidgetStorage(widgetKey, { lastSeenMessageId: state.lastSeenMessageId });
-    }, [widgetKey, state.lastSeenMessageId]);
-
-    // --- Actions ------------------------------------------------------------
-
-    const openPanel = useCallback(() => {
-        writeWidgetStorage(widgetKey, { minimized: false });
-        dispatch({ type: "panelOpened" });
-    }, [widgetKey]);
-
-    const minimizePanel = useCallback(() => {
-        writeWidgetStorage(widgetKey, { minimized: true });
-        dispatch({ type: "panelMinimized" });
-    }, [widgetKey]);
-
-    const sendFirstMessage = useCallback(
-        async (body: string) => {
-            dispatch({ type: "sendStarted" });
-            try {
-                const response = await client.startConversation({ body, ...visitorContext() });
-                writeWidgetStorage(widgetKey, { sessionToken: response.sessionToken, sessionUpdatedAt: Date.now() });
-                setSessionToken(response.sessionToken);
-                dispatch({
-                    type: "conversationStarted",
-                    conversation: response.conversation,
-                    message: response.message,
-                });
-            } catch (error) {
-                dispatch({ type: "sendFailed", error: describeError(error) });
-            }
-        },
-        [client, widgetKey],
-    );
-
-    const sendMessage = useCallback(
-        async (body: string) => {
-            const token = sessionTokenRef.current;
-            if (token === null) return;
-            dispatch({ type: "sendStarted" });
-            try {
-                const response = await client.postMessage({ body }, { sessionToken: token });
-                writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
-                dispatch({ type: "messageSent", message: response.message });
-            } catch (error) {
-                // A DEAD SESSION IS NOT A FAILED SEND. Before this, a 401 here showed the
-                // generic "that didn't send" and the session was only discarded when the
-                // next poll (≤ 3 s later) 401'd as well — so the visitor read the wrong
-                // explanation first and watched the panel change its mind. Discarding here
-                // resets straight to a fresh greeting, which is what actually happened.
-                if (error instanceof JelyApiError && error.isSessionGone) {
-                    discardSession();
-                    return;
-                }
-                dispatch({ type: "sendFailed", error: describeError(error) });
-                // A refused write means the server moved the conversation under us; poll at
-                // once so the panel flips to the state that explains it.
-                if (error instanceof JelyApiError && error.isConversationWriteRefused) pollNow();
-            }
-        },
-        [client, discardSession, pollNow],
-    );
-
-    const openHandoff = useCallback(async () => {
-        const token = sessionTokenRef.current;
-        // Unreachable from the UI: the only control that calls this is the chat footer's
-        // row, and the chat phase implies a session. It survives as the guard for one
-        // race — a poll discarding the session between the render and the click — where
-        // the panel is about to reset to the greeting anyway, so silence is the whole
-        // correct response.
-        if (token === null) return;
-        dispatch({ type: "sendStarted" });
-        try {
-            const handoff = await client.requestHandoff({ sessionToken: token });
-            dispatch({ type: "handoffOpened", handoff });
-        } catch (error) {
-            // Same rule as `sendMessage`: a gone session resets rather than reporting a
-            // failure that did not happen.
-            if (error instanceof JelyApiError && error.isSessionGone) {
-                discardSession();
-                return;
-            }
-            dispatch({ type: "sendFailed", error: describeError(error) });
-            if (error instanceof JelyApiError && error.isConversationWriteRefused) pollNow();
-        }
-    }, [client, discardSession, pollNow]);
-
-    const startNewChat = useCallback(() => {
-        clearWidgetStorage(widgetKey);
-        setSessionToken(null);
-        dispatch({ type: "startNewChat" });
-    }, [widgetKey]);
-
-    // --- Render -------------------------------------------------------------
-
-    if (unavailable || config === null) return null;
-
-    const appearance = resolveAppearance(config.appearance, appearanceOverride);
-    const whatsappAvailable = config.whatsapp.available;
-    const organizationName = config.organization.name;
+    const appearance = resolveAppearance(state.config.appearance, appearanceOverride);
+    const whatsappAvailable = state.config.whatsapp.available;
+    const organizationName = state.config.organization.name;
+    const error = state.error === null ? null : describeError(state.error);
 
     return (
         <div
@@ -295,7 +57,7 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 // this", not "close the whole chat behind it".
                 if (shouldDismissHandoffOnEscape({ key: event.key, handoffOpen, targetInsideWidget: inside })) {
                     event.stopPropagation();
-                    dispatch({ type: "handoffDismissed" });
+                    chat.dismissHandoff();
                     return;
                 }
                 if (
@@ -311,20 +73,20 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 // Only now: the keystroke came from inside the widget and it closed the
                 // panel, so the host page must not also act on it.
                 event.stopPropagation();
-                minimizePanel();
+                chat.close();
             }}
         >
-            {!state.open && <Launcher appearance={appearance} unreadCount={state.unreadCount} onOpen={openPanel} />}
+            {!state.open && <Launcher appearance={appearance} unreadCount={state.unreadCount} onOpen={chat.open} />}
 
             {state.open && state.phase === "greeting" && (
                 <GreetingCard
                     appearance={appearance}
                     organizationName={organizationName}
                     sending={state.sending}
-                    error={state.error}
-                    onSendFirstMessage={sendFirstMessage}
-                    onDismissError={() => dispatch({ type: "errorCleared" })}
-                    onMinimize={minimizePanel}
+                    error={error}
+                    onSendFirstMessage={chat.start}
+                    onDismissError={chat.clearError}
+                    onMinimize={chat.close}
                 />
             )}
 
@@ -336,13 +98,13 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                     lock={state.phase === "linked" ? "linked" : state.phase === "closed" ? "closed" : null}
                     whatsappAvailable={whatsappAvailable}
                     sending={state.sending}
-                    error={state.error}
-                    onSend={sendMessage}
-                    onOpenHandoff={openHandoff}
-                    onDismissError={() => dispatch({ type: "errorCleared" })}
-                    onMinimize={minimizePanel}
-                    onSeen={() => dispatch({ type: "messagesSeen" })}
-                    onStartNewChat={startNewChat}
+                    error={error}
+                    onSend={chat.send}
+                    onOpenHandoff={chat.requestHandoff}
+                    onDismissError={chat.clearError}
+                    onMinimize={chat.close}
+                    onSeen={chat.markSeen}
+                    onStartNewChat={chat.startNewChat}
                 />
             )}
 
@@ -350,7 +112,7 @@ export function WidgetRoot({ widgetKey, apiBaseUrl, appearance: appearanceOverri
                 page-level modal (see `HandoffModal`), so it is not the panel's overlay any
                 more and must not inherit the panel's box or its `overflow: hidden`. */}
             {state.open && state.phase === "handoff" && state.handoff !== null && (
-                <HandoffModal handoff={state.handoff} onDismiss={() => dispatch({ type: "handoffDismissed" })} />
+                <HandoffModal handoff={state.handoff} onDismiss={chat.dismissHandoff} />
             )}
         </div>
     );
@@ -404,31 +166,11 @@ export function isInsideWidget(root: { contains(node: Node): boolean } | null, t
     return root.contains(target as Node);
 }
 
-/**
- * `pageUrl` and `referrer` for `POST /conversations` (decision E8 stores them on the
- * conversation; the IP and user agent are taken server-side). Both are dropped rather than
- * truncated when they exceed the contract's 2,000-character bound — a truncated URL is a
- * wrong URL, and a rejected request would cost the visitor their first message.
- */
-function visitorContext(): { pageUrl?: string; referrer?: string } {
-    const context: { pageUrl?: string; referrer?: string } = {};
-    if (typeof window === "undefined") return context;
-    try {
-        const href = window.location.href;
-        if (href !== "" && href.length <= 2000) context.pageUrl = href;
-        const referrer = document.referrer;
-        if (referrer !== "" && referrer.length <= 2000) context.referrer = referrer;
-    } catch {
-        // A sandboxed frame can throw on either read; the conversation is worth more.
-    }
-    return context;
-}
-
 /** One visitor-facing sentence per failure the widget can actually cause. */
-function describeError(error: unknown): string {
-    if (!(error instanceof JelyApiError)) return copy.errorSendFailed;
-    if (error.isNetworkError) return copy.errorOffline;
+function describeError(error: WidgetError): string {
     switch (error.code) {
+        case "NETWORK_ERROR":
+            return copy.errorOffline;
         case "RATE_LIMITED":
             return copy.errorRateLimited;
         case "VALIDATION_ERROR":

@@ -1,8 +1,8 @@
 {
     "name": "@jely/chat-widget",
-    "version": "0.1.5",
+    "version": "0.2.0",
     "license": "MIT",
-    "description": "Embeddable web-chat widget for Jely \u2014 anonymous visitor chat with an optional handoff to WhatsApp. React 18+ / Next.js.",
+    "description": "Embeddable web-chat widget for Jely — anonymous visitor chat with an optional handoff to WhatsApp. React 18+ / Next.js.",
     "keywords": [
         "jely",
         "chat",
@@ -19,10 +19,37 @@
     "types": "./dist/index.d.ts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js",
-            "require": "./dist/index.cjs",
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            },
             "default": "./dist/index.js"
+        },
+        "./headless": {
+            "import": {
+                "types": "./dist/headless.d.ts",
+                "default": "./dist/headless.js"
+            },
+            "require": {
+                "types": "./dist/headless.d.cts",
+                "default": "./dist/headless.cjs"
+            },
+            "default": "./dist/headless.js"
+        },
+        "./react": {
+            "import": {
+                "types": "./dist/react.d.ts",
+                "default": "./dist/react.js"
+            },
+            "require": {
+                "types": "./dist/react.d.cts",
+                "default": "./dist/react.cjs"
+            },
+            "default": "./dist/react.js"
         },
         "./package.json": "./package.json"
     },
@@ -43,6 +70,14 @@
     "peerDependencies": {
         "react": ">=18",
         "react-dom": ">=18"
+    },
+    "peerDependenciesMeta": {
+        "react": {
+            "optional": true
+        },
+        "react-dom": {
+            "optional": true
+        }
     },
     "dependencies": {
         "qrcode": "^1.5.4"

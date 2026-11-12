@@ -4,8 +4,8 @@ An embeddable web-chat widget for Jely. Visitors chat anonymously from
 your site; your team answers from the Jely dashboard or from Slack; the visitor can
 optionally continue the same conversation on WhatsApp.
 
-React 18+ and React 19. Next.js App Router and Pages Router. No other framework is
-supported, and there is no `<script>` embed.
+React 18+ and React 19. Next.js App Router and Pages Router. There is no `<script>` embed.
+To build your own chat UI — in React or any other framework — see **Build your own UI**.
 
 ---
 
@@ -38,7 +38,9 @@ npm install @jely/chat-widget
 ```
 
 `react` and `react-dom` (>= 18) are peer dependencies — the package never bundles its own
-copy. `qrcode` is bundled; you do not need to install it.
+copy. They are marked optional because `@jely/chat-widget/headless` does not use them; the
+widget and `@jely/chat-widget/react` need React 18+. `qrcode` is bundled; you do not need to
+install it.
 
 ---
 
@@ -170,8 +172,10 @@ be recognised by `code` in your error reporting rather than by message),
 (`WidgetAppearance`, `WidgetConversationView`, `WidgetMessageView`, `WidgetTheme`,
 `WidgetConversationStatus`, `WidgetMessageDirection`, `WidgetApiErrorCode`, `ApiErrorBody`).
 
-Nothing else is public. The API client, storage helpers, polling hook, reducer, stylesheet
-and views are implementation details and change without a major version.
+Nothing else is public from this entry. The two subpaths, `@jely/chat-widget/headless` and
+`@jely/chat-widget/react`, are documented under **Build your own UI**. The API client,
+storage helpers, polling, reducer, stylesheet and views are implementation details and
+change without a major version.
 
 ---
 
@@ -261,6 +265,212 @@ resource of any kind. It is the code you already installed from npm.
 
 ---
 
+## Build your own UI
+
+The drop-in widget is the right choice almost always: one component, the console's
+appearance, nothing else to maintain. If you need the chat to look or sit differently than
+the widget allows — inline in a help page, in your own design system, in a framework other
+than React — the package also exports the conversation without the widget. You render
+everything; the package keeps the session, the polling and the rules.
+
+Same prerequisites as the widget (see **Before you install**): the widget **enabled** in the
+console, its **widget key**, and your site's origin on **allowed-origins**. The CSP is the
+same too — `connect-src` to the API origin. Nothing else: no stylesheet is injected.
+
+| Import                       | What it is                                                                        | Needs React |
+| ---------------------------- | --------------------------------------------------------------------------------- | ----------- |
+| `@jely/chat-widget/headless` | `createJelyChat` — a framework-free controller — plus helpers and types           | no          |
+| `@jely/chat-widget/react`    | `useJelyChat`, plus everything `./headless` exports, so you import from one place | yes (18+)   |
+
+`<JelyChatWidget>` is built on the same controller, so a custom UI gets exactly the
+widget's behaviour. Custom UIs need not show the widget's "Powered by" line.
+
+### React
+
+```tsx
+"use client";
+import { useJelyChat } from "@jely/chat-widget/react";
+
+export function SupportChat() {
+    const { chat, state } = useJelyChat({ widgetKey: process.env.NEXT_PUBLIC_JELY_WIDGET_KEY! });
+
+    // Null on the first render, while GET /config is in flight, and forever if the install
+    // is wrong. Render nothing in all three cases — exactly what the widget does.
+    if (chat === null || state === null || state.config === null || state.unavailable) return null;
+
+    if (!state.open) return <button onClick={chat.open}>Chat ({state.unreadCount})</button>;
+    if (state.phase === "greeting") return <Composer sending={state.sending} onSend={chat.start} />;
+
+    return (
+        <div>
+            {state.messages.map((m) => (
+                <p key={m.id} className={m.direction}>
+                    {m.body}
+                </p>
+            ))}
+            {state.phase === "chat" && <Composer sending={state.sending} onSend={chat.send} />}
+            {(state.phase === "linked" || state.phase === "closed") && (
+                <button onClick={chat.startNewChat}>Start a new chat</button>
+            )}
+        </div>
+    );
+}
+```
+
+`useJelyChat(options)` returns `{ chat, state }`. The controller is created in an effect —
+never during a server render — and destroyed on unmount. It is recreated only when
+`widgetKey` or `apiBaseUrl` changes; `defaultOpen` only seeds a new one.
+
+### Any other framework
+
+```js
+import { createJelyChat } from "@jely/chat-widget/headless";
+
+const chat = createJelyChat({ widgetKey: "jely_wk_…" });
+const unsubscribe = chat.subscribe(() => render(chat.getState()));
+render(chat.getState());
+
+// when the chat leaves the page:
+unsubscribe();
+chat.destroy();
+```
+
+Creating the controller starts it: it reads `localStorage`, fetches the config and, if a
+recent session is stored, restores it. Create it in the browser only. Importing the module
+on a server is safe; nothing runs at import time.
+
+Options, for both: `widgetKey` (required), `apiBaseUrl` (as the widget prop), and
+`defaultOpen` (open on first visit; the visitor's own open/minimised choice wins after
+that).
+
+`getState()` returns the same object until something changes, so it works directly with
+`useSyncExternalStore`, Svelte stores, signals and the like. Listeners take no arguments.
+
+### State
+
+| Field               | Type                                   | Notes                                                                         |
+| ------------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
+| `config`            | `WidgetPublicConfigResponse \| null`   | Org name, appearance, `whatsapp.available`. Null until `GET /config` answers. |
+| `unavailable`       | `boolean`                              | `GET /config` failed: the install is wrong. Render nothing.                   |
+| `phase`             | `WidgetPhase`                          | Where the conversation is — see below.                                        |
+| `open`              | `boolean`                              | Whether your panel is showing. Independent of `phase`.                        |
+| `conversation`      | `WidgetConversationView \| null`       | `ref`, `status`, `linked`, `createdAt`.                                       |
+| `messages`          | `WidgetMessageView[]`                  | Oldest first, deduplicated. `direction` is `"visitor"` or `"agent"`.          |
+| `unreadCount`       | `number`                               | Agent messages after the last one the visitor saw. For a launcher badge.      |
+| `lastSeenMessageId` | `string \| null`                       | The unread cursor.                                                            |
+| `handoff`           | `RequestWidgetHandoffResponse \| null` | Set in the `handoff` phase.                                                   |
+| `sending`           | `boolean`                              | A write is in flight. Disable your send button.                               |
+| `error`             | `WidgetError \| null`                  | `{ code, message? }` from the last failed write. See **Errors**.              |
+
+| `phase`    | Means                                     | Render                                                                     |
+| ---------- | ----------------------------------------- | -------------------------------------------------------------------------- |
+| `idle`     | No conversation, panel never opened       | A launcher. `open()` moves to `greeting`.                                  |
+| `greeting` | No conversation yet, panel open           | The org's greeting and a first-message composer → `start(text)`.           |
+| `chat`     | A live conversation                       | Transcript, composer → `send(text)`, and the WhatsApp option if available. |
+| `handoff`  | The visitor asked to continue on WhatsApp | The transcript plus the handoff (QR, link) from `state.handoff`.           |
+| `linked`   | The visitor continued on WhatsApp         | Read-only transcript, "continue on WhatsApp" message, "Start a new chat".  |
+| `closed`   | An operator closed the conversation       | Read-only transcript, "this conversation was closed", "Start a new chat".  |
+
+A conversation that is both linked and closed is `linked`. Only the server moves a
+conversation into `linked` or `closed`; only `startNewChat()` moves out.
+
+### Actions
+
+None of them throw or reject; a failure lands in `state.error`.
+
+| Action               | Valid when                                                 | Does                                                                                                                   |
+| -------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `start(text)`        | `greeting`                                                 | Creates the conversation with the first message. Call it only without a conversation — it starts a new one regardless. |
+| `send(text)`         | `chat`                                                     | Sends a message. Does nothing without a session.                                                                       |
+| `requestHandoff()`   | `chat`, and only offer it when `config.whatsapp.available` | Fetches the WhatsApp handoff and moves to `handoff`. Does nothing in any other phase.                                  |
+| `dismissHandoff()`   | `handoff`                                                  | Back to `chat`.                                                                                                        |
+| `startNewChat()`     | `chat`, `handoff`, `linked`, `closed`                      | Forgets the stored session and returns to `greeting`. The old conversation stays open for your team.                   |
+| `open()` / `close()` | any                                                        | Shows or minimises your panel; remembered across page loads. `close()` during `handoff` returns to `chat`.             |
+| `markSeen()`         | panel open                                                 | Call when the visitor has seen the newest message (e.g. scrolled to the bottom). Clears `unreadCount`.                 |
+| `clearError()`       | any                                                        | Clears `error`.                                                                                                        |
+| `destroy()`          | once                                                       | Stops polling and drops listeners. `useJelyChat` does it for you on unmount.                                           |
+
+New messages are already marked seen while the panel is open; `markSeen()` is for a UI that
+lets the visitor scroll away from the bottom.
+
+**Your composer must** trim the text, refuse an empty message, and cap it at
+`WIDGET_MESSAGE_MAX_CHARS` (2000) — the controller sends what you give it, and the server
+answers anything else with `VALIDATION_ERROR`.
+
+### Handoff
+
+`state.handoff` carries `waLink` (a `https://wa.me/…` link), `ref` (the conversation's
+reference), `prefilledText` (the message the visitor is about to send — show it) and
+`phoneDisplay` (the number, formatted; may be empty). Render `waLink` as a link, and the QR
+for visitors on a desktop:
+
+```tsx
+import { buildHandoffQr } from "@jely/chat-widget/react"; // or /headless
+
+const qr = buildHandoffQr(handoff.waLink); // null if it cannot be encoded — show the link alone
+{
+    qr && (
+        <svg
+            viewBox={`0 0 ${qr.viewBoxSize} ${qr.viewBoxSize}`}
+            width={192}
+            height={192}
+            role="img"
+            aria-label="WhatsApp QR code"
+        >
+            <rect width={qr.viewBoxSize} height={qr.viewBoxSize} fill="#fff" />
+            <path d={qr.path} fill="#000" />
+        </svg>
+    );
+}
+```
+
+The `viewBox` already includes the quiet zone scanners need; draw the code dark on light.
+It is one SVG path — no `data:` URI, so no `img-src` change. Nothing is linked until the
+visitor actually sends the WhatsApp message, so the visitor can dismiss and come back.
+
+### Errors
+
+`state.error.code` is one of these. `message` is the server's diagnostic text, for logs —
+write your own copy for visitors. The widget's wording is shown for reference.
+
+| `code`                                                         | Means                                                                                          | The widget shows                                                     |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `NETWORK_ERROR`                                                | No response: offline, the request timed out, your CSP blocked it, or the origin is not allowed | "We couldn't reach support just now. Try again in a moment."         |
+| `RATE_LIMITED`                                                 | Too many requests. Let the visitor retry later; do not retry in a loop                         | "That's a lot of messages at once — give it a moment and try again." |
+| `VALIDATION_ERROR`                                             | Empty or longer than `WIDGET_MESSAGE_MAX_CHARS`                                                | "Messages are limited to 2000 characters."                           |
+| `CONVERSATION_LOCKED`                                          | Continued on WhatsApp; writes refused. `phase` turns `linked` straight after                   | "You're connected on WhatsApp"                                       |
+| `CONVERSATION_CLOSED`                                          | Closed by an operator; writes refused. `phase` turns `closed` straight after                   | "This conversation was closed"                                       |
+| `HANDOFF_DISABLED`                                             | The WhatsApp handoff is off for this org                                                       | "Moving to WhatsApp isn't available right now."                      |
+| `SESSION_INVALID`, `CONVERSATION_NOT_FOUND`                    | Never in `state.error`: the session is dropped and `phase` returns to `greeting`               | —                                                                    |
+| `WIDGET_KEY_INVALID`, `WIDGET_NOT_READY`, `ORIGIN_NOT_ALLOWED` | The install is wrong. On load this is `unavailable: true`, not an error                        | nothing (the widget does not render)                                 |
+| `NOT_FOUND`, `INTERNAL_ERROR`, `UNKNOWN`                       | Anything else. `UNKNOWN` is a code this package does not recognise, or no code at all          | "That didn't send. Check your connection and try again."             |
+
+`NETWORK_ERROR` and `UNKNOWN` are produced by the package, never sent by the server.
+
+### Appearance
+
+- `resolveAppearance(state.config.appearance, overrides?)` — the persona with the widget's
+  precedence (package defaults → console → your overrides), blank strings treated as absent,
+  and an invalid `accentColor` or `theme` replaced by the default.
+- `resolveCta(appearance)` — `{ label, url }` when both are set, otherwise `null`.
+- `WIDGET_APPEARANCE_DEFAULTS` — the neutral defaults.
+
+### Fixed behaviour
+
+None of this is configurable, and it is the same as the widget's:
+
+- **One chat per widget key per page.** The session lives in `localStorage` under
+  `jely.widget.<widgetKey>`, so two instances on one key — including a custom UI next to
+  `<JelyChatWidget>` — would share and fight over it.
+- **Sessions expire after 5 minutes** without a message in either direction; the next page
+  load starts fresh. Opening or minimising does not count.
+- **Polling**: every 3 seconds while `open`, every 15 while minimised, paused while the tab
+  is hidden, not before the config has loaded, and stopped once the conversation is linked
+  or closed.
+- **Starting a conversation sends the page URL and referrer**, as the widget does.
+
+---
+
 ## Example
 
 `examples/next-app/` in this repository is a minimal Next.js App Router app that mounts the
@@ -282,7 +492,7 @@ It is a maintainer document and is not part of the published package.
 
 ## Requirements
 
-- React >= 18, React DOM >= 18
+- React >= 18, React DOM >= 18 (the widget and `./react`; not `./headless`)
 - A browser with Shadow DOM (every browser since 2018). Without it the widget renders
   nothing rather than leaking styles into your page.
 - Node >= 18 to build against.

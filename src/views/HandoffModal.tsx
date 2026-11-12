@@ -18,7 +18,7 @@
  * fallback renumbers itself instead of showing a lone "2".
  *
  * The QR encodes the same `waLink` the button opens, so scanning it from another device
- * and tapping it on this one are the same act. `buildQrSymbol` draws it as one SVG path —
+ * and tapping it on this one are the same act. `buildHandoffQr` draws it as one SVG path —
  * no data URI, so the host site needs no extra `img-src` (see `qr.ts`).
  *
  * A CENTRED, PAGE-LEVEL MODAL (user ruling, 2026-09-08), which reverses this file's
@@ -40,7 +40,7 @@
 import { useEffect, useId, useMemo, useRef, type KeyboardEvent } from "react";
 
 import { copy } from "../copy";
-import { buildQrSymbol } from "../qr";
+import { buildHandoffQr } from "../qr";
 import type { RequestWidgetHandoffResponse } from "../types";
 import { CheckCircleIcon, CloseIcon, ExternalLinkIcon, WhatsAppGlyph } from "./icons";
 
@@ -50,7 +50,7 @@ export interface HandoffModalProps {
 }
 
 export function HandoffModal({ handoff, onDismiss }: HandoffModalProps) {
-    const qr = useMemo(() => buildQrSymbol(handoff.waLink), [handoff.waLink]);
+    const qr = useMemo(() => buildHandoffQr(handoff.waLink), [handoff.waLink]);
     const titleId = useId();
     const cardRef = useRef<HTMLDivElement | null>(null);
     // The link is built by the server, but this renders a target the visitor is invited to

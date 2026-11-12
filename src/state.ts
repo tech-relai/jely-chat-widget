@@ -32,6 +32,7 @@
  * old conversation rather than reopening it.
  */
 
+import type { WidgetError } from "./core/errors";
 import type { RequestWidgetHandoffResponse, WidgetConversationView, WidgetMessageView } from "./types";
 
 export type WidgetPhase = "idle" | "greeting" | "chat" | "handoff" | "linked" | "closed";
@@ -52,8 +53,8 @@ export interface WidgetState {
     handoff: RequestWidgetHandoffResponse | null;
     /** A write is in flight (first message, reply, or handoff request). */
     sending: boolean;
-    /** Last visitor-facing error, or null. S8.2 decides how loudly to render it. */
-    error: string | null;
+    /** Last failed write, as a code, or null. The UI decides the wording and how loudly to render it. */
+    error: WidgetError | null;
 }
 
 export function initialWidgetState(options?: { open?: boolean; lastSeenMessageId?: string | null }): WidgetState {
@@ -89,7 +90,7 @@ export type WidgetEvent =
     /** `POST /conversation/messages` succeeded. */
     | { type: "messageSent"; message: WidgetMessageView }
     /** A write failed. `sending` is cleared; `phase` is untouched unless the server moved it. */
-    | { type: "sendFailed"; error: string }
+    | { type: "sendFailed"; error: WidgetError }
     /** A poll returned. Both the conversation state and any new messages arrive together. */
     | { type: "polled"; conversation: WidgetConversationView; messages: WidgetMessageView[] }
     /** The handoff modal is up, with the payload the server returned. */

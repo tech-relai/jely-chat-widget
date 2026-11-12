@@ -19,7 +19,7 @@
 
 import QRCode from "qrcode";
 
-export interface QrSymbol {
+export interface HandoffQr {
     /** Modules per side, excluding the quiet zone. */
     moduleCount: number;
     /** Side of the `viewBox`, i.e. `moduleCount` + twice the quiet zone. */
@@ -42,7 +42,7 @@ const QUIET_ZONE_MODULES = 4;
  * Error correction level M is the default and the right one here: the link is short, and
  * H would add modules (a denser symbol) for redundancy a screen does not need.
  */
-export function buildQrSymbol(text: string): QrSymbol | null {
+export function buildHandoffQr(text: string): HandoffQr | null {
     if (text === "") return null;
 
     let modules: { size: number; get(row: number, col: number): number };

@@ -3,9 +3,11 @@
     "compilerOptions": {
         "types": ["node", "vite/client"],
         "paths": {
-            "@jely/chat-widget": ["../dist/index.d.ts"]
+            "@jely/chat-widget": ["../dist/index.d.ts"],
+            "@jely/chat-widget/headless": ["../dist/headless.d.ts"],
+            "@jely/chat-widget/react": ["../dist/react.d.ts"]
         }
     },
-    "include": ["main.tsx", "vite.config.ts"],
+    "include": ["main.tsx", "public-api.ts", "vite.config.ts"],
     "exclude": ["dist"]
 }

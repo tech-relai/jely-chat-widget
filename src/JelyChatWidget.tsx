@@ -34,7 +34,7 @@ import { WIDGET_CSS } from "./css";
 import { currentPathname, matchesRoutes } from "./routes";
 import { applyWidgetStyles } from "./styles";
 import type { WidgetAppearance } from "./types";
-import { POLL_INTERVAL_OPEN_MS } from "./usePolling";
+import { POLL_INTERVAL_OPEN_MS } from "./core/polling";
 import { WidgetRoot } from "./WidgetRoot";
 
 export interface JelyChatWidgetProps {

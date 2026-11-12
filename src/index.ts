@@ -8,10 +8,12 @@
  * implementation and are NOT exported: they change without a major version, and a package
  * that exports its internals cannot change them at all.
  *
- * S8.1 exported the internals as a placeholder so the build had something to check. That
- * is now over — this is the surface the package ships with.
+ * A team building its own chat UI does not import from here: `@jely/chat-widget/headless`
+ * (no React) and `@jely/chat-widget/react` (`useJelyChat`) expose the same conversation the
+ * widget runs on. This entry stays exactly what it was, so existing installs are unaffected.
  *
- * Version 0.1.0 is unpublished (R12); publishing is a manual step by the user (§11).
+ * Published to npm as `@jely/chat-widget`; publishing is a manual step by the user — see
+ * `RELEASING.md`.
  */
 
 export { JelyChatWidget, type JelyChatWidgetProps } from "./JelyChatWidget";

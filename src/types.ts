@@ -51,7 +51,7 @@ export const WIDGET_MAX_ALLOWED_ORIGINS = 20;
 /**
  * Fixed-window rate limits for the widget channel, enforced server-side and
  * process-local. Mirrored so the widget can explain a 429 in the visitor's terms and
- * so `usePolling`'s intervals can be checked against them: the 3s open poll is exactly
+ * so `core/polling.ts`'s intervals can be checked against them: the 3s open poll is exactly
  * 20 requests/minute, which is why `messagesPerSessionPerMinute` is applied to the
  * message POST only and never to the poll — a widget left open would otherwise rate-limit
  * itself simply by staying open.

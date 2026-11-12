@@ -82,8 +82,12 @@ customer's site, not loud. That is what the smoke page's `/csp.html` is for.
 
 ## Semver for this package
 
-The public surface is exactly what `src/index.ts` exports. Everything else — the views, the
-stylesheet, `copy.ts`, the reducer, the API client — is internal and can change in a patch.
+The public surface is exactly what the three entries export: `src/index.ts` (`.`, the
+widget), `src/headless.ts` (`./headless`) and `src/react.ts` (`./react`). All three are under
+the same rule below — renaming a field of `JelyChatState`, a method of `JelyChat` or a
+`WidgetErrorCode` breaks custom UIs exactly as renaming a prop breaks the widget. Everything
+else — the views, the stylesheet, `copy.ts`, the reducer, the API client — is internal and
+can change in a patch.
 
 | Bump  | For                                                                                   |
 | ----- | ------------------------------------------------------------------------------------- |
