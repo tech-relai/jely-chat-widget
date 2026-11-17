@@ -9,8 +9,8 @@
  *
  * CREATING IT STARTS IT. The constructor reads `localStorage` (guarded — see `storage.ts`),
  * fetches `GET /config` and, when a session is stored, restores it (there is no local
- * timer: see `storage.ts`). Nothing
- * touches `window` or storage at import time, so importing this on a server is safe.
+ * timer: see `storage.ts`). Nothing touches `window` or storage at import time, so
+ * importing this on a server is safe.
  *
  * `config` STAYS NULL UNTIL `GET /config` ANSWERS, and `unavailable` turns true if it never
  * does. The shipped widget renders nothing in both cases, deliberately: painting neutral
@@ -140,9 +140,12 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     // The stored session is resolved with the POLL endpoint rather than `GET /conversation`:
     // it returns the conversation AND the transcript in one round trip.
     if (sessionToken !== null) {
+        const restoring = sessionToken;
         client
-            .getMessages({ sessionToken, signal: lifetime.signal })
+            .getMessages({ sessionToken: restoring, signal: lifetime.signal })
             .then((response) => {
+                // A new chat may have been started while this was in flight.
+                if (sessionToken !== restoring) return;
                 dispatch({
                     type: "sessionRestored",
                     conversation: response.conversation,
@@ -167,6 +170,9 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
         if (token === null) return;
         try {
             const response = await client.getMessages({ sessionToken: token, after: pollCursor(widget), signal });
+            // A poll for a session that has since gone (a new chat, a discard) must not
+            // restore it: an unrestored state treats any poll as the restore.
+            if (sessionToken !== token) return;
             // `visible`: a reply that lands in a background tab stays unread until it is seen.
             dispatch({
                 type: "polled",
@@ -175,7 +181,7 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
                 visible: !isDocumentHidden(),
             });
         } catch (error) {
-            if (error instanceof JelyApiError && error.isSessionGone) discardSession();
+            if (error instanceof JelyApiError && error.isSessionGone && sessionToken === token) discardSession();
             // Everything else is a tick that produced nothing; the next one follows.
         }
     }
@@ -183,6 +189,14 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     // --- Actions ------------------------------------------------------------
 
     async function start(text: string) {
+        // A stored session not restored yet (its restore poll failed) is still this visitor's
+        // conversation: the message goes there, never into a second conversation over it.
+        // The next poll that answers restores the transcript around it.
+        if (sessionToken !== null) {
+            await send(text);
+            poller.pollNow();
+            return;
+        }
         dispatch({ type: "sendStarted" });
         try {
             const { response, identitySent } = await identitySync.startConversation(text);
