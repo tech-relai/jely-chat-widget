@@ -4,10 +4,9 @@
  *
  *   import { createJelyChat } from "@jely/chat-widget/headless";
  *
- * The controller owns everything the shipped widget does — config, session restore and its
- * 30-minute TTL, polling, unread counts, the visitor identity, the WhatsApp handoff, linked
- * and closed states —
- * and a UI only renders `getState()` and calls its methods. React users can import the
+ * The controller owns everything the shipped widget does — config, session restore on
+ * every page load, polling, unread counts, the visitor identity, the WhatsApp handoff,
+ * linked and closed states — and a UI only renders `getState()` and calls its methods. React users can import the
  * same names, plus `useJelyChat`, from `@jely/chat-widget/react`.
  *
  * THE SURFACE IS SMALL ON PURPOSE, as on the root entry: the controller, the few pure

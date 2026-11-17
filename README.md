@@ -7,6 +7,10 @@ optionally continue the same conversation on WhatsApp.
 React 18+ and React 19. Next.js App Router and Pages Router. There is no `<script>` embed.
 To build your own chat UI — in React or any other framework — see **Build your own UI**.
 
+> **0.4.0 behaviour change: sessions no longer expire after 30 minutes.** A visitor's
+> conversation now resumes on every return until an operator closes it or it continues on
+> WhatsApp. See **Behaviour worth knowing before you ship it**.
+
 ---
 
 ## Before you install
@@ -285,8 +289,11 @@ resource of any kind. It is the code you already installed from npm.
   linked or closed.
 - **The launcher shows an unread count** when the panel is minimised and an agent replies.
   A reply that arrives while the tab is hidden stays unread until the visitor comes back.
-- **A conversation is kept for 30 minutes** after the last message in either direction; the
-  next page load after that starts a new one.
+- **A conversation resumes whenever the visitor comes back** — a refresh, a new tab, a
+  later day — until an operator closes it or it continues on WhatsApp. After that the
+  visitor sees the closed chat with its transcript and can start a new one. The session
+  token never expires on the server, so there is no timer. On a shared device the next
+  person on that browser sees the same chat; a custom UI can call `startNewChat()` at logout.
 - **The widget mounts itself on `document.body`**, in a shadow root, at a very high
   `z-index` — high enough to clear any real stacking context, low enough that a cookie
   banner can still cover it. It is not rendered where you put the element, so your layout's
@@ -370,7 +377,7 @@ chat.destroy();
 ```
 
 Creating the controller starts it: it reads `localStorage`, fetches the config and, if a
-recent session is stored, restores it. Create it in the browser only. Importing the module
+session is stored, restores it. Create it in the browser only. Importing the module
 on a server is safe; nothing runs at import time.
 
 Options, for both: `widgetKey` (required), `apiBaseUrl` (as the widget prop),
@@ -509,9 +516,11 @@ None of this is configurable, and it is the same as the widget's:
 - **One chat per widget key per page.** The session lives in `localStorage` under
   `jely.widget.<widgetKey>`, so two instances on one key — including a custom UI next to
   `<JelyChatWidget>` — would share and fight over it.
-- **Sessions expire after 30 minutes** without a message in either direction (a sent
-  identity counts too); the next page load starts fresh. Opening or minimising does not
-  count.
+- **Sessions do not expire.** The stored conversation is restored on every page load —
+  a refresh, a new tab, a later day — until an operator closes it or it is linked to
+  WhatsApp; then `phase` is `closed` or `linked` with the transcript, and `startNewChat()`
+  starts fresh. Only `SESSION_INVALID` or `startNewChat()` drops it. The session token
+  never expires on the server.
 - **Polling**: every 3 seconds while `open`, every 15 while minimised, every 30 while the tab
   is hidden, not before the config has loaded, and stopped once the conversation is linked
   or closed.

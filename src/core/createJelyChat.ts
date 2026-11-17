@@ -8,7 +8,8 @@
  *   chat.destroy();
  *
  * CREATING IT STARTS IT. The constructor reads `localStorage` (guarded — see `storage.ts`),
- * fetches `GET /config` and, when a stored session survives the TTL, restores it. Nothing
+ * fetches `GET /config` and, when a session is stored, restores it (there is no local
+ * timer: see `storage.ts`). Nothing
  * touches `window` or storage at import time, so importing this on a server is safe.
  *
  * `config` STAYS NULL UNTIL `GET /config` ANSWERS, and `unavailable` turns true if it never
@@ -32,7 +33,7 @@
  */
 
 import { JelyApiError, createWidgetApiClient } from "../api";
-import { clearWidgetStorage, expireStaleSession, removeWidgetStorageFields, writeWidgetStorage } from "../storage";
+import { clearWidgetStorage, readWidgetStorage, removeWidgetStorageFields, writeWidgetStorage } from "../storage";
 import { initialWidgetState, pollCursor, widgetReducer, type WidgetEvent } from "../state";
 import type { WidgetPublicConfigResponse } from "../types";
 import { toWidgetError } from "./errors";
@@ -44,8 +45,8 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
     const { widgetKey } = options;
     const client = createWidgetApiClient({ widgetKey, apiBaseUrl: options.apiBaseUrl });
 
-    // Read once, and let a stale conversation go before anything reads a token out of it.
-    const stored = expireStaleSession(widgetKey, Date.now());
+    // Read once. A stored session is always resumed; only the server can end it.
+    const stored = readWidgetStorage(widgetKey);
     let sessionToken: string | null = stored.sessionToken ?? null;
     let config: WidgetPublicConfigResponse | null = null;
     let unavailable = false;
@@ -166,9 +167,6 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
         if (token === null) return;
         try {
             const response = await client.getMessages({ sessionToken: token, after: pollCursor(widget), signal });
-            // `after: pollCursor(...)` means a non-empty list is genuinely NEW — an operator
-            // reply keeps the conversation alive, a quiet poll does not.
-            if (response.messages.length > 0) writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
             // `visible`: a reply that lands in a background tab stays unread until it is seen.
             dispatch({
                 type: "polled",
@@ -190,7 +188,6 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
             const { response, identitySent } = await identitySync.startConversation(text);
             writeWidgetStorage(widgetKey, {
                 sessionToken: response.sessionToken,
-                sessionUpdatedAt: Date.now(),
                 ...(identitySent !== null ? { identitySent } : {}),
             });
             sessionToken = response.sessionToken;
@@ -208,7 +205,6 @@ export function createJelyChat(options: JelyChatOptions): JelyChat {
         dispatch({ type: "sendStarted" });
         try {
             const response = await client.postMessage({ body: text }, { sessionToken: token });
-            writeWidgetStorage(widgetKey, { sessionUpdatedAt: Date.now() });
             dispatch({ type: "messageSent", message: response.message });
         } catch (error) {
             refuse(error);

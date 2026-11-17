@@ -3,7 +3,7 @@
  * session token, the last message the visitor has seen, and whether the panel was left
  * minimised.
  *
- * `localStorage["jely.widget.<widgetKey>"] = { sessionToken, lastSeenMessageId, minimized, sessionUpdatedAt, identitySent }`
+ * `localStorage["jely.widget.<widgetKey>"] = { sessionToken, lastSeenMessageId, minimized, identitySent }`
  *
  * EVERY access is wrapped in try/catch, including the `window.localStorage` property
  * lookup itself — Safari in private mode and any browser with site data blocked throw a
@@ -15,12 +15,14 @@
  * version of this package, or corrupted. `readWidgetStorage` therefore validates field by
  * field and drops anything of the wrong type instead of trusting the JSON.
  *
- * THE SESSION EXPIRES (user, 2026-09-08). Without a TTL the stored token was kept forever,
- * so a visitor -- or someone testing -- refreshed the page and got the same conversation
- * back weeks later. `expireStaleSession` drops it once `sessionUpdatedAt` is older than
- * `WIDGET_SESSION_TTL_MS`, and `minimized` survives because it is a UI preference rather
- * than conversation state. Nothing is deleted server-side: the conversation stays open for
- * the operator, the visitor simply starts a fresh one.
+ * THE SESSION HAS NO TIMER (user, 2026-11-18; reverses the 2026-09-08 TTL). A stored
+ * session is resumed on every page load -- a refresh, a new tab, a later day -- for as long
+ * as the server accepts it, and the server never expires a token. It goes only when the
+ * server rejects it (`SESSION_INVALID`) or the visitor starts a new chat; a closed or linked
+ * conversation is restored as such, and its screen offers that new chat.
+ *
+ * A field an older version wrote and this one no longer knows (0.3.0's `sessionUpdatedAt`)
+ * is ignored on read and dropped by the next write; it never costs the visitor the session.
  */
 
 /** What the widget keeps between page loads. Every field is optional — none is load-bearing. */
@@ -32,14 +34,6 @@ export interface WidgetStoredState {
     /** Whether the panel was minimised when the visitor left the page. */
     minimized?: boolean;
     /**
-     * When the CONVERSATION last moved, in epoch milliseconds — a message sent, a message
-     * received, or the session being created. Deliberately not touched by opening,
-     * minimising or merely loading the page: a TTL that a refresh renews is not a TTL, and
-     * "it keeps my same chat every time I refresh" is the thing this exists to stop. A
-     * successful identify counts as the conversation moving.
-     */
-    sessionUpdatedAt?: number;
-    /**
      * Fingerprint (`identityFingerprint`) of the visitor identity this SESSION's
      * conversation already has, so a reload does not send it again. A hash rather than the
      * identity itself, so the visitor's name and email are not stored twice. Goes with the
@@ -47,13 +41,6 @@ export interface WidgetStoredState {
      */
     identitySent?: string;
 }
-
-/**
- * How long a stored conversation survives without either side saying anything. Thirty
- * minutes (user, 2026-11-12; five before that) — long enough to survive a visitor logging
- * in on a site whose login and signup pages carry the widget.
- */
-export const WIDGET_SESSION_TTL_MS = 30 * 60 * 1000;
 
 const STORAGE_KEY_PREFIX = "jely.widget.";
 
@@ -108,49 +95,10 @@ export function readWidgetStorage(widgetKey: string): WidgetStoredState {
     if (typeof candidate.minimized === "boolean") {
         state.minimized = candidate.minimized;
     }
-    if (typeof candidate.sessionUpdatedAt === "number" && Number.isFinite(candidate.sessionUpdatedAt)) {
-        state.sessionUpdatedAt = candidate.sessionUpdatedAt;
-    }
     if (typeof candidate.identitySent === "string" && candidate.identitySent !== "") {
         state.identitySent = candidate.identitySent;
     }
     return state;
-}
-
-/**
- * Whether a stored session is too old to resume. Pure, so it can be checked without a
- * browser or a clock.
- *
- * A session with NO `sessionUpdatedAt` is expired. That is the entry an older version of
- * this package wrote, and the safe reading of "no idea when this last moved" is "let it
- * go" — the cost is one dropped conversation at upgrade time, against resuming a
- * conversation from an unknown point in the past forever.
- *
- * A stamp in the FUTURE is expired too: it means the device clock moved backwards, and
- * treating it as fresh would pin the session open until the clock caught up.
- */
-export function isStoredSessionExpired(state: WidgetStoredState, now: number, ttlMs = WIDGET_SESSION_TTL_MS): boolean {
-    if (state.sessionToken === undefined) return false;
-    if (state.sessionUpdatedAt === undefined) return true;
-    const age = now - state.sessionUpdatedAt;
-    return age < 0 || age > ttlMs;
-}
-
-/**
- * Read the stored state, dropping the session if it has gone stale. Returns what is left.
- *
- * IDEMPOTENT ON PURPOSE: it is called from a `useMemo`, which React may run more than once
- * for a single commit, and doing the pruning there rather than in an effect is what stops
- * the first render resuming a session the second render would throw away.
- */
-export function expireStaleSession(widgetKey: string, now: number, ttlMs = WIDGET_SESSION_TTL_MS): WidgetStoredState {
-    const state = readWidgetStorage(widgetKey);
-    if (!isStoredSessionExpired(state, now, ttlMs)) return state;
-
-    removeWidgetStorageFields(widgetKey, ["sessionToken", "lastSeenMessageId", "sessionUpdatedAt", "identitySent"]);
-    const kept: WidgetStoredState = {};
-    if (state.minimized !== undefined) kept.minimized = state.minimized;
-    return kept;
 }
 
 /**
@@ -168,7 +116,6 @@ export function writeWidgetStorage(widgetKey: string, patch: WidgetStoredState):
     if (patch.sessionToken !== undefined) next.sessionToken = patch.sessionToken;
     if (patch.lastSeenMessageId !== undefined) next.lastSeenMessageId = patch.lastSeenMessageId;
     if (patch.minimized !== undefined) next.minimized = patch.minimized;
-    if (patch.sessionUpdatedAt !== undefined) next.sessionUpdatedAt = patch.sessionUpdatedAt;
     if (patch.identitySent !== undefined) next.identitySent = patch.identitySent;
 
     try {

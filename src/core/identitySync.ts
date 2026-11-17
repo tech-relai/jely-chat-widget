@@ -75,10 +75,7 @@ export function createIdentitySync(deps: IdentitySyncDeps, initial: JelyChatIden
             await client.identify({ identity: value }, { sessionToken: token, signal: deps.signal });
             // Only for the session it was sent to: a new chat may have started meanwhile.
             if (deps.getSessionToken() === token) {
-                writeWidgetStorage(widgetKey, {
-                    identitySent: identityFingerprint(value),
-                    sessionUpdatedAt: Date.now(),
-                });
+                writeWidgetStorage(widgetKey, { identitySent: identityFingerprint(value) });
             }
             return "sent";
         } catch (error) {
