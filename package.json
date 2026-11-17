@@ -1,6 +1,6 @@
 {
     "name": "@jely/chat-widget",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "license": "MIT",
     "description": "Embeddable web-chat widget for Jely — anonymous visitor chat with an optional handoff to WhatsApp. React 18+ / Next.js.",
     "keywords": [

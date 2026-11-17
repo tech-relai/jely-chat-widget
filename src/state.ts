@@ -16,6 +16,7 @@
  *                     │                               └──handoffDismissed──────┘
  *                     │
  *   (restored from localStorage) ──▶ chat | linked | closed
+ *   (a failed restore: the first poll that answers restores it the same way)
  *
  *   chat / handoff / greeting ──serverStateChanged(linked)──▶ linked
  *   chat / handoff / linked   ──serverStateChanged(closed)──▶ closed
@@ -196,6 +197,10 @@ export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetSta
             return { ...state, sending: false, error: event.error };
 
         case "polled": {
+            // A stored session whose restore poll failed (offline, a 5xx, a 429) is still
+            // polled. The first poll that answers is that restore: without this the visitor
+            // would sit on the greeting of a conversation they already have.
+            if (state.conversation === null) return widgetReducer(state, { ...event, type: "sessionRestored" });
             const messages = mergeMessages(state.messages, event.messages);
             const phase = nextPhaseFromServer(state.phase, event.conversation);
             const next: WidgetState = {
@@ -247,13 +252,14 @@ export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetSta
  * Where the server can move the widget. It may only ever move it FORWARD into a terminal
  * state — nothing on the wire can drag a visitor out of `greeting` or back out of `linked`.
  *
- * THE CONSEQUENCE, RECORDED DELIBERATELY (ruled at S8.2): a conversation never leaves
- * `linked` or `closed`, and `WidgetRoot` stops polling once it reaches either. So an
+ * THE CONSEQUENCE, RECORDED DELIBERATELY (ruled at S8.2): a widget already on the page
+ * never leaves `linked` or `closed`, and stops polling once it reaches either. So an
  * operator who REOPENS a closed conversation from the Support page is not seen by a widget
- * still sitting open on that page — the visitor starts a new chat instead. That is the
- * accepted phase-1 trade: resuming would mean polling terminal conversations indefinitely
+ * still sitting on that page: it stays `closed` until the next page load, which restores
+ * the reopened conversation as `chat` (the session is kept until the visitor starts a new
+ * chat). Following a reopen live would mean polling terminal conversations indefinitely
  * against the 600/minute budget shared by every visitor on the customer's site, to serve a
- * rare case, and it matches §1.4's "a refreshed page with a new message is a new session".
+ * rare case.
  */
 function nextPhaseFromServer(phase: WidgetPhase, conversation: WidgetConversationView): WidgetPhase {
     const serverPhase = phaseForConversation(conversation);
@@ -306,8 +312,12 @@ export function mergeMessages(existing: WidgetMessageView[], incoming: WidgetMes
     return added.length === 0 ? existing : [...existing, ...added];
 }
 
-/** The id to send as `?after=` on the next poll, or undefined for the whole transcript. */
+/**
+ * The id to send as `?after=` on the next poll, or undefined for the whole transcript —
+ * always the whole transcript while the conversation has not been restored yet.
+ */
 export function pollCursor(state: WidgetState): string | undefined {
+    if (state.conversation === null) return undefined;
     const newest = state.messages[state.messages.length - 1];
     return newest?.id;
 }
